@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block title %}报酬申报 - 工作量+1{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto">
+    <div class="bg-white rounded-xl shadow-sm p-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-2">{{ period.title }}</h2>
+        <p class="text-sm text-gray-500 mb-6">
+            {{ period.start_date.strftime('%Y-%m-%d') }} ~ {{ period.end_date.strftime('%Y-%m-%d') }}
+        </p>
+
+        <div class="bg-blue-50 rounded-lg p-4 mb-6">
+            <p class="text-sm text-blue-800">
+                系统记录工时: <span class="font-bold">{{ "%.1f"|format(system_hours) }} 小时</span>
+            </p>
+            <p class="text-xs text-blue-600 mt-1">
+                申报时需满足：工资时长 + 志愿时长 = 本段总工时
+            </p>
+        </div>
+
+        {% if error_message %}
+        <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {{ error_message }}
+        </div>
+        {% endif %}
+
+        <form id="claim-form" action="/admin/claim/{{ period.id }}" method="POST" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">工资时长 (小时)</label>
+                <input id="paid-hours" type="number" name="paid_hours" step="0.25" min="0" required
+                       value="{{ form_paid_hours if form_paid_hours is not none else (existing_claim.paid_hours if existing_claim else '') }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                       placeholder="0">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">志愿时长 (小时)</label>
+                <input id="volunteer-hours" type="number" name="volunteer_hours" step="0.25" min="0" required
+                       value="{{ form_volunteer_hours if form_volunteer_hours is not none else (existing_claim.volunteer_hours if existing_claim else '') }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                       placeholder="0">
+            </div>
+
+            <div class="rounded-lg bg-gray-50 px-4 py-3 text-sm">
+                <p class="text-gray-600">
+                    当前合计: <span id="claim-total" class="font-semibold text-gray-800">0.00</span> 小时
+                </p>
+                <p class="text-gray-500 mt-1">
+                    目标总工时: <span class="font-medium">{{ "%.2f"|format(system_hours) }}</span> 小时
+                </p>
+                <p id="claim-validation-msg" class="mt-2 text-xs text-red-600 hidden"></p>
+            </div>
+
+            <div class="pt-4">
+                <button type="submit"
+                        class="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                    {% if existing_claim %}更新申报{% else %}提交申报{% endif %}
+                </button>
+            </div>
+        </form>
+
+        {% if existing_claim %}
+        <p class="mt-4 text-sm text-gray-500 text-center">
+            上次提交时间: {{ existing_claim.submitted_at.strftime('%Y-%m-%d %H:%M') }}
+        </p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const targetHours = Number({{ "%.2f"|format(system_hours) }});
+    const paidInput = document.getElementById('paid-hours');
+    const volunteerInput = document.getElementById('volunteer-hours');
+    const totalEl = document.getElementById('claim-total');
+    const msgEl = document.getElementById('claim-validation-msg');
+    const form = document.getElementById('claim-form');
+
+    function calcTotal() {
+        const paid = Number(paidInput.value || 0);
+        const volunteer = Number(volunteerInput.value || 0);
+        const total = Math.round((paid + volunteer) * 100) / 100;
+        totalEl.textContent = total.toFixed(2);
+
+        const ok = Math.abs(total - targetHours) < 0.001;
+        if (ok) {
+            msgEl.classList.add('hidden');
+            msgEl.textContent = '';
+        } else {
+            msgEl.classList.remove('hidden');
+            msgEl.textContent = `工资时长 + 志愿时长 必须等于 ${targetHours.toFixed(2)} 小时`;
+        }
+        return ok;
+    }
+
+    paidInput.addEventListener('input', calcTotal);
+    volunteerInput.addEventListener('input', calcTotal);
+    form.addEventListener('submit', function (event) {
+        if (!calcTotal()) {
+            event.preventDefault();
+        }
+    });
+
+    calcTotal();
+</script>
+{% endblock %}

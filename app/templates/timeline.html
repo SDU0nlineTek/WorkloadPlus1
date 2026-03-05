@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}时间线 - 工作量+1{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <!-- 筛选器 -->
+    <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
+        <div class="flex flex-wrap items-center gap-4">
+            <div class="flex items-center space-x-2">
+                <label class="text-sm text-gray-600">月份:</label>
+                <select id="month-filter" onchange="applyFilter()" aria-label="按月份筛选" title="按月份筛选"
+                        class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="">全部</option>
+                    {% for m in months %}
+                    <option value="{{ m.value }}" {% if m.value == current_month %}selected{% endif %}>
+                        {{ m.label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <label class="text-sm text-gray-600">部门:</label>
+                <select id="dept-filter" onchange="applyFilter()" aria-label="按部门筛选" title="按部门筛选"
+                        class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="">全部</option>
+                    {% for dept in departments %}
+                    <option value="{{ dept.id }}" {% if dept.id == current_dept_id %}selected{% endif %}>
+                        {{ dept.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="ml-auto text-sm text-gray-500">
+                共 <span class="font-medium text-blue-600">{{ record_count }}</span> 条记录，
+                <span class="font-medium text-blue-600">{{ '%.1f'|format((total_hours * 60 + total_mins) / 60) }} 小时</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
+        <h3 class="text-lg font-bold text-gray-800 mb-3">活动热力图</h3>
+        <p class="text-sm text-gray-500 mb-3">最近 {{ activity_heatmap.total_days }} 天记录活跃情况</p>
+        <div class="overflow-x-auto">
+            <div class="min-w-max flex gap-1">
+                {% for week in activity_heatmap.weeks %}
+                <div class="flex flex-col gap-1">
+                    {% for day in week %}
+                    <div class="heatmap-cell heatmap-l{{ day.level }}" title="{{ day.date }}: {{ day.count }} 条"></div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="mt-3 text-xs text-gray-500 flex items-center gap-2">
+            <span>少</span>
+            <span class="heatmap-cell heatmap-l0"></span>
+            <span class="heatmap-cell heatmap-l1"></span>
+            <span class="heatmap-cell heatmap-l2"></span>
+            <span class="heatmap-cell heatmap-l3"></span>
+            <span class="heatmap-cell heatmap-l4"></span>
+            <span>多</span>
+        </div>
+    </div>
+
+    <!-- 时间线 -->
+    <div class="bg-white rounded-xl shadow-sm p-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-6">我的时间线</h2>
+        
+        <div id="timeline-content">
+            {% if not grouped_records %}
+            <p class="text-gray-400 text-center py-12">暂无记录</p>
+            {% else %}
+            {% for date_key, group in grouped_records.items() %}
+            <div class="mb-6">
+                <div class="flex items-center mb-3">
+                    <div class="w-3 h-3 bg-blue-600 rounded-full"></div>
+                    <span class="ml-3 font-medium text-gray-800">{{ group.date }} {{ group.weekday }}</span>
+                    <span class="ml-auto text-sm text-gray-500">
+                        {{ '%.1f'|format(group.total_minutes / 60) }} 小时
+                    </span>
+                </div>
+                <div class="ml-6 border-l-2 border-gray-200 pl-4 space-y-3">
+                    {% for record in group.records %}
+                    <div class="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="font-medium text-gray-800">{{ record.project.name }}</p>
+                                <p class="text-sm text-gray-600 mt-1">{{ record.description }}</p>
+                                <p class="text-xs text-gray-400 mt-1">{{ record.department.name }}</p>
+                                {% if record.related_content %}
+                                <a href="{{ record.related_content }}" target="_blank" 
+                                   class="text-xs text-blue-500 hover:underline mt-1 block">
+                                    相关内容
+                                </a>
+                                {% endif %}
+                            </div>
+                            <span class="text-blue-600 font-medium">
+                                {{ '%.1f'|format(record.duration_minutes / 60) }} 小时
+                            </span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    function applyFilter() {
+        const month = document.getElementById('month-filter').value;
+        const deptId = document.getElementById('dept-filter').value;
+        
+        let url = '/timeline?';
+        if (month) url += `month=${month}&`;
+        if (deptId) url += `dept_id=${deptId}&`;
+        
+        window.location.href = url;
+    }
+</script>
+{% endblock %}

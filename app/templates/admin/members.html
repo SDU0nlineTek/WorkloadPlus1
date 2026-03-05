@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}成员管理 - 工作量+1{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="bg-white rounded-xl shadow-sm p-4">
+        <div class="flex items-center gap-4">
+            <label class="text-sm text-gray-600">当前部门:</label>
+            <select onchange="window.location.href='/admin/members?dept_id='+this.value" title="选择管理部门"
+                    class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                {% for dept in admin_depts %}
+                <option value="{{ dept.id }}" {% if dept.id == current_dept_id %}selected{% endif %}>{{ dept.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-lg font-bold text-gray-800 mb-3">部门注册链接</h3>
+        <p class="text-sm text-gray-500 mb-3">成员登录后访问该链接即可自动加入当前部门。</p>
+        <div class="flex flex-col md:flex-row gap-3">
+            <input id="join-link" type="text" readonly value="{{ join_link }}" title="部门注册链接"
+                   class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50">
+            <button type="button" onclick="copyJoinLink()"
+                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
+                复制链接
+            </button>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-lg font-bold text-gray-800 mb-4">成员列表</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-gray-600">姓名</th>
+                        <th class="px-4 py-2 text-left text-gray-600">学号</th>
+                        <th class="px-4 py-2 text-right text-gray-600">累计工时</th>
+                        <th class="px-4 py-2 text-center text-gray-600">角色</th>
+                        <th class="px-4 py-2 text-center text-gray-600">操作</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for m in members %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3">{{ m.name }}</td>
+                        <td class="px-4 py-3 text-gray-500">{{ m.sduid }}</td>
+                        <td class="px-4 py-3 text-right text-blue-600 font-medium">{{ '%.1f'|format(m.total_hours) }} 小时</td>
+                        <td class="px-4 py-3 text-center">
+                            {% if m.is_admin %}
+                            <span class="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded">管理员</span>
+                            {% else %}
+                            <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">成员</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-center">
+                            {% if m.id != current_user_id %}
+                            <form action="/admin/members/{{ current_dept_id }}/{{ m.id }}/remove" method="POST"
+                                  onsubmit="return confirm('确定移除该成员吗？')">
+                                <button type="submit" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">
+                                    移除
+                                </button>
+                            </form>
+                            {% else %}
+                            <span class="text-xs text-gray-400">当前用户</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无成员</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    async function copyJoinLink() {
+        const input = document.getElementById('join-link');
+        await navigator.clipboard.writeText(input.value);
+        showToast('链接已复制', 'success');
+    }
+</script>
+{% endblock %}

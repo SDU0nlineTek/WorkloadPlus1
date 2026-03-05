@@ -1,0 +1,23 @@
+[project]
+name = "WorkloadPlus1"
+version = "0.1.0"
+description = "工作量+1 - 极简工作填报系统"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi[standard]>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlmodel>=0.0.22",
+    "jinja2>=3.1.4",
+    "python-multipart>=0.0.12",
+    "httpx>=0.27.0",
+    "openpyxl>=3.1.5",
+    "itsdangerous>=2.2.0",
+    "pydantic-settings>=2.5.0",
+]
+
+[project.scripts]
+workload = "app.cli:app"
+
+[tool.uv]
+package = true
