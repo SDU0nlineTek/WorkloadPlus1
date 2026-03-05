@@ -34,3 +34,6 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """获取配置单例"""
     return Settings()
+
+
+settings = Settings()

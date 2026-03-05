@@ -5,10 +5,10 @@
 {% block content %}
 <div class="space-y-6">
     <div class="bg-white rounded-xl shadow-sm p-4">
-        <div class="flex items-center gap-4">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
             <label class="text-sm text-gray-600">当前部门:</label>
             <select onchange="window.location.href='/admin/members?dept_id='+this.value" title="选择管理部门"
-                    class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    class="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                 {% for dept in admin_depts %}
                 <option value="{{ dept.id }}" {% if dept.id == current_dept_id %}selected{% endif %}>{{ dept.name }}</option>
                 {% endfor %}
@@ -31,7 +31,42 @@
 
     <div class="bg-white rounded-xl shadow-sm p-6">
         <h3 class="text-lg font-bold text-gray-800 mb-4">成员列表</h3>
-        <div class="overflow-x-auto">
+
+        <div class="space-y-3 md:hidden">
+            {% for m in members %}
+            <div class="border border-gray-200 rounded-lg p-3 bg-white">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-base font-medium text-gray-800 break-words">{{ m.name }}</p>
+                        <p class="text-xs text-gray-500 mt-0.5">学号：{{ m.sduid }}</p>
+                    </div>
+                    {% if m.is_admin %}
+                    <span class="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded whitespace-nowrap">管理员</span>
+                    {% else %}
+                    <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded whitespace-nowrap">成员</span>
+                    {% endif %}
+                </div>
+
+                <div class="mt-3 flex items-center justify-between gap-3">
+                    <p class="text-sm text-blue-600 font-medium">累计 {{ '%.1f'|format(m.total_hours) }} 小时</p>
+                    {% if m.id != current_user_id %}
+                    <form action="/admin/members/{{ current_dept_id }}/{{ m.id }}/remove" method="POST"
+                          onsubmit="return confirm('确定移除该成员吗？')">
+                        <button type="submit" class="px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">
+                            移除
+                        </button>
+                    </form>
+                    {% else %}
+                    <span class="text-xs text-gray-400">当前用户</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="px-4 py-8 text-center text-gray-400">暂无成员</div>
+            {% endfor %}
+        </div>
+
+        <div class="hidden md:block overflow-x-auto">
             <table class="w-full text-sm">
                 <thead class="bg-gray-50">
                     <tr>

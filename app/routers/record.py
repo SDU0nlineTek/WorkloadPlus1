@@ -1,26 +1,24 @@
 """工作记录路由"""
 
 from datetime import datetime, timedelta
-from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import col, select
 
 from app.config import get_settings
-from app.database import get_session
 from app.models import (
     Department,
     Project,
     SettlementClaim,
     SettlementPeriod,
-    User,
     UserDeptLink,
     WorkRecord,
 )
-from app.routers.deps import CurrentUser, get_user_departments
+from app.routers.deps import UseridSession, UserSession
 
 router = APIRouter(tags=["工作记录"])
 settings = get_settings()
@@ -30,7 +28,7 @@ templates = Jinja2Templates(directory=settings.base_dir / "templates")
 class RecordItem(BaseModel):
     """单条记录"""
 
-    dept_id: int
+    dept_id: UUID
     project_name: str
     description: str
     hours: int = 0
@@ -46,33 +44,23 @@ class BatchRecordRequest(BaseModel):
 
 @router.get("/record", response_class=HTMLResponse)
 async def record_page(
-    request: Request,
-    session: Session = Depends(get_session),
+    s: UserSession,
 ):
     """填报主页面"""
-    user_id = request.session.get("user_id")
-    if not user_id:
-        return RedirectResponse(url="/login", status_code=302)
+    request = s.request
+    user = s.user
+    session = s.db
 
-    user = session.get(User, user_id)
-    if not user:
-        request.session.clear()
-        return RedirectResponse(url="/login", status_code=302)
-
-    # 获取用户所属部门
-    departments = get_user_departments(user, session)
-    user_dept_ids = [
-        dept["id"] if isinstance(dept, dict) else dept.id for dept in departments
-    ]
+    user_dept_ids = [link.dept_id for link in user.dept_links]
 
     # 首页申报入口：当前用户所属部门的开放结算周期
     claim_entries = []
     if user_dept_ids:
         open_periods = session.exec(
             select(SettlementPeriod)
-            .where(SettlementPeriod.is_open == True)
-            .where(SettlementPeriod.dept_id.in_(user_dept_ids))
-            .order_by(SettlementPeriod.created_at.desc())
+            .where(SettlementPeriod.is_open)
+            .where(col(SettlementPeriod.dept_id).in_(user_dept_ids))
+            .order_by(col(SettlementPeriod.id).desc())
         ).all()
 
         period_ids = [period.id for period in open_periods]
@@ -81,8 +69,8 @@ async def record_page(
             claimed_period_ids = set(
                 session.exec(
                     select(SettlementClaim.period_id)
-                    .where(SettlementClaim.user_id == user_id)
-                    .where(SettlementClaim.period_id.in_(period_ids))
+                    .where(SettlementClaim.user_id == user.id)
+                    .where(col(SettlementClaim.period_id).in_(period_ids))
                 ).all()
             )
 
@@ -98,9 +86,9 @@ async def record_page(
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     today_records = session.exec(
         select(WorkRecord)
-        .where(WorkRecord.user_id == user_id)
+        .where(WorkRecord.user_id == user.id)
         .where(WorkRecord.created_at >= today_start)
-        .order_by(WorkRecord.created_at.desc())
+        .order_by(col(WorkRecord.created_at).desc())
     ).all()
 
     # 计算今日总时长
@@ -113,7 +101,7 @@ async def record_page(
         {
             "request": request,
             "user": user,
-            "departments": departments,
+            "departments": user.dept_list(),
             "today_records": today_records,
             "today_hours": today_hours,
             "today_mins": today_mins,
@@ -124,48 +112,30 @@ async def record_page(
 
 @router.get("/claim")
 async def claim_entry(
-    request: Request,
-    session: Session = Depends(get_session),
+    s: UserSession,
 ):
     """用户申报快捷入口：跳转到最近开放周期"""
-    user_id = request.session.get("user_id")
-    if not user_id:
-        return RedirectResponse(url="/login", status_code=302)
-
-    user = session.get(User, user_id)
-    if not user:
-        request.session.clear()
-        return RedirectResponse(url="/login", status_code=302)
-
-    departments = get_user_departments(user, session)
-    user_dept_ids = [dept["id"] for dept in departments]
-
-    if not user_dept_ids:
-        return RedirectResponse(url="/record#settlement-claims", status_code=302)
+    user = s.user
+    session = s.db
 
     period = session.exec(
         select(SettlementPeriod)
-        .where(SettlementPeriod.is_open == True)
-        .where(SettlementPeriod.dept_id.in_(user_dept_ids))
-        .order_by(SettlementPeriod.created_at.desc())
+        .where(SettlementPeriod.is_open)
+        .where(col(SettlementPeriod.dept_id).in_([d.dept_id for d in user.dept_links]))
+        .order_by(col(SettlementPeriod.id).desc())
     ).first()
-
     if not period:
         return RedirectResponse(url="/record#settlement-claims", status_code=302)
-
     return RedirectResponse(url=f"/admin/claim/{period.id}", status_code=302)
 
 
 @router.get("/projects/dropdown", response_class=HTMLResponse)
 async def get_project_dropdown(
-    request: Request,
-    dept_id: int = Query(...),
-    session: Session = Depends(get_session),
+    s: UseridSession,
+    dept_id: UUID = Query(...),
 ):
     """获取部门项目下拉选项（HTMX端点）"""
-    user_id = request.session.get("user_id")
-    if not user_id:
-        raise HTTPException(401, "未登录")
+    session = s.db
 
     # 获取部门配置的活跃窗口
     dept = session.get(Department, dept_id)
@@ -180,7 +150,7 @@ async def get_project_dropdown(
         select(Project)
         .where(Project.dept_id == dept_id)
         .where(Project.last_active_at >= cutoff_date)
-        .order_by(Project.last_active_at.desc())
+        .order_by(col(Project.last_active_at).desc())
     ).all()
 
     # 生成HTML选项
@@ -193,9 +163,8 @@ async def get_project_dropdown(
 
 @router.post("/record")
 async def create_record(
-    request: Request,
-    session: Session = Depends(get_session),
-    dept_id: int = Form(...),
+    s: UserSession,
+    dept_id: UUID = Form(...),
     project_name: str = Form(...),
     description: str = Form(...),
     hours: int = Form(0),
@@ -203,13 +172,8 @@ async def create_record(
     related_content: str | None = Form(None),
 ):
     """创建单条记录"""
-    user_id = request.session.get("user_id")
-    if not user_id:
-        raise HTTPException(401, "未登录")
-
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(401, "用户不存在")
+    session = s.db
+    user_id = s.user.id
 
     # 验证部门
     dept = session.get(Department, dept_id)
@@ -270,18 +234,12 @@ async def create_record(
 
 @router.post("/record/batch")
 async def create_batch_records(
-    request: Request,
+    s: UserSession,
     data: BatchRecordRequest,
-    session: Session = Depends(get_session),
 ):
     """批量创建记录"""
-    user_id = request.session.get("user_id")
-    if not user_id:
-        raise HTTPException(401, "未登录")
-
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(401, "用户不存在")
+    session = s.db
+    user_id = s.user.id
 
     if not data.records:
         raise HTTPException(400, "至少需要一条记录")
@@ -348,14 +306,12 @@ async def create_batch_records(
 
 @router.delete("/record/{record_id}")
 async def delete_record(
-    request: Request,
-    record_id: int,
-    session: Session = Depends(get_session),
+    s: UserSession,
+    record_id: UUID,
 ):
     """删除记录"""
-    user_id = request.session.get("user_id")
-    if not user_id:
-        raise HTTPException(401, "未登录")
+    session = s.db
+    user_id = s.user.id
 
     record = session.get(WorkRecord, record_id)
     if not record:

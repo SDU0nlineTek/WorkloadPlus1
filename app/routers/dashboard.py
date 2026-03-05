@@ -2,21 +2,19 @@
 
 from datetime import datetime, timedelta
 from typing import Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Query
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlmodel import Session, func, select
+from sqlmodel import col, select
 
 from app.config import get_settings
-from app.database import get_session
 from app.models import (
-    Department,
-    Project,
-    User,
     UserDeptLink,
     WorkRecord,
 )
+from app.routers.deps import UseridSessionOptional, UserSession
 from app.services.activity_heatmap import build_activity_heatmap
 
 router = APIRouter(tags=["时间线"])
@@ -26,20 +24,15 @@ templates = Jinja2Templates(directory=settings.base_dir / "templates")
 
 @router.get("/timeline", response_class=HTMLResponse)
 async def timeline_page(
-    request: Request,
+    s: UserSession,
     month: Optional[str] = Query(None),  # 格式: 2024-01
-    dept_id: Optional[int] = Query(None),
-    session: Session = Depends(get_session),
+    dept_id: Optional[UUID] = Query(None),
 ):
     """个人时间线页面"""
-    user_id = request.session.get("user_id")
-    if not user_id:
-        return RedirectResponse(url="/login", status_code=302)
-
-    user = session.get(User, user_id)
-    if not user:
-        request.session.clear()
-        return RedirectResponse(url="/login", status_code=302)
+    request = s.request
+    session = s.db
+    user = s.user
+    user_id = user.id
 
     # 获取用户所属部门
     links = session.exec(
@@ -61,7 +54,7 @@ async def timeline_page(
                 end_date = datetime(year, mon + 1, 1)
             query = query.where(WorkRecord.created_at >= start_date)
             query = query.where(WorkRecord.created_at < end_date)
-        except:
+        except Exception:
             pass
 
     # 按部门筛选
@@ -69,7 +62,7 @@ async def timeline_page(
         query = query.where(WorkRecord.dept_id == dept_id)
 
     # 获取记录
-    records = session.exec(query.order_by(WorkRecord.created_at.desc())).all()
+    records = session.exec(query.order_by(col(WorkRecord.created_at).desc())).all()
 
     # 按日期分组
     grouped_records = {}
@@ -128,13 +121,13 @@ async def timeline_page(
 
 @router.get("/timeline/filter", response_class=HTMLResponse)
 async def timeline_filter(
-    request: Request,
+    s: UseridSessionOptional,
     month: Optional[str] = Query(None),
-    dept_id: Optional[int] = Query(None),
-    session: Session = Depends(get_session),
+    dept_id: Optional[UUID] = Query(None),
 ):
     """HTMX 筛选端点"""
-    user_id = request.session.get("user_id")
+    session = s.db
+    user_id = s.user_id
     if not user_id:
         return HTMLResponse('<p class="text-red-500">请先登录</p>')
 
@@ -151,13 +144,13 @@ async def timeline_filter(
                 end_date = datetime(year, mon + 1, 1)
             query = query.where(WorkRecord.created_at >= start_date)
             query = query.where(WorkRecord.created_at < end_date)
-        except:
+        except Exception:
             pass
 
     if dept_id:
         query = query.where(WorkRecord.dept_id == dept_id)
 
-    records = session.exec(query.order_by(WorkRecord.created_at.desc())).all()
+    records = session.exec(query.order_by(col(WorkRecord.created_at).desc())).all()
 
     # 按日期分组
     grouped_records = {}

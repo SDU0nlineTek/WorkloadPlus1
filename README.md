@@ -59,9 +59,9 @@ CommitMyLabor/
 
 1. 创建环境
 
-```shell
-uv sync
-```
+    ```shell
+    uv sync
+    ```
 
 2. 启动应用
 
@@ -102,4 +102,3 @@ uv run workload list-dept
 - 主应用入口：`app/main.py`
 - CLI 入口：`app/cli.py`
 - 根目录 `main.py` / `cli.py` / `seed_data.py` 为兼容入口，可继续使用。
-

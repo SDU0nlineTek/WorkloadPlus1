@@ -159,7 +159,7 @@
                             {{ '%.1f'|format(record.duration_minutes / 60) }} 小时
                         </span>
                     </div>
-                        <button onclick="deleteRecord({{ record.id }})" title="删除记录" aria-label="删除记录"
+                        <button onclick="deleteRecord('{{ record.id }}')" title="删除记录" aria-label="删除记录"
                             class="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -193,7 +193,7 @@
         const formData = new FormData(form);
         
         const record = {
-            dept_id: parseInt(formData.get('dept_id')),
+            dept_id: formData.get('dept_id'),
             project_name: formData.get('project_name'),
             description: formData.get('description'),
             hours: parseInt(formData.get('hours') || 0),

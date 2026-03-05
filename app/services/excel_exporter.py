@@ -3,18 +3,16 @@
 from datetime import datetime
 from io import BytesIO
 from typing import Optional
+from uuid import UUID
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
-from sqlmodel import Session, func, select
+from sqlmodel import Session, col, select
 
 from app.models import (
-    Department,
     Project,
     SettlementClaim,
     SettlementPeriod,
-    User,
     UserDeptLink,
     WorkRecord,
 )
@@ -22,12 +20,12 @@ from app.models import (
 
 def create_export_workbook(
     session: Session,
-    dept_id: int,
+    dept_id: UUID,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-    period_id: Optional[int] = None,
-    user_id: Optional[int] = None,
-    project_id: Optional[int] = None,
+    period_id: Optional[UUID] = None,
+    user_id: Optional[UUID] = None,
+    project_id: Optional[UUID] = None,
 ) -> BytesIO:
     """
     创建导出 Excel 工作簿
@@ -60,7 +58,7 @@ def create_export_workbook(
     )
 
     # 获取部门信息
-    dept = session.get(Department, dept_id)
+    # dept = session.get(Department, dept_id)
 
     # 如果提供了结算周期ID，获取日期范围
     if period_id:
@@ -71,6 +69,7 @@ def create_export_workbook(
 
     # ==================== Sheet 1: 个人 ====================
     ws1 = wb.active
+    assert ws1
     ws1.title = "个人"
 
     # 表头
@@ -88,8 +87,8 @@ def create_export_workbook(
         "工资时长(h)",
         "志愿时长(h)",
     ]
-    for col, header in enumerate(headers1, 1):
-        cell = ws1.cell(row=1, column=col, value=header)
+    for c, header in enumerate(headers1, 1):
+        cell = ws1.cell(row=1, column=c, value=header)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_alignment
@@ -120,7 +119,9 @@ def create_export_workbook(
         if project_id:
             record_query = record_query.where(WorkRecord.project_id == project_id)
 
-        records = session.exec(record_query.order_by(WorkRecord.created_at.asc())).all()
+        records = session.exec(
+            record_query.order_by(col(WorkRecord.created_at).asc())
+        ).all()
 
         # 计算系统工时
         system_minutes = sum(r.duration_minutes for r in records)
@@ -221,8 +222,8 @@ def create_export_workbook(
         "总时长(分钟)",
         "总时长(h)",
     ]
-    for col, header in enumerate(headers2, 1):
-        cell = ws2.cell(row=1, column=col, value=header)
+    for c, header in enumerate(headers2, 1):
+        cell = ws2.cell(row=1, column=c, value=header)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_alignment

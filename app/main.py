@@ -1,13 +1,17 @@
 """FastAPI 应用入口"""
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from urllib.parse import quote
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import get_settings
 from app.database import create_db_and_tables
+from app.routers import admin_router, auth_router, dashboard_router, record_router
 
 settings = get_settings()
 
@@ -17,7 +21,7 @@ settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_: FastAPI):
     """应用生命周期管理"""
     # 启动时: 确保数据库表存在
     import app.models  # noqa: F401
@@ -36,6 +40,28 @@ app = FastAPI(
 
 # Session 中间件
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
+templates = Jinja2Templates(directory=settings.base_dir / "templates")
+
+
+@app.exception_handler(AssertionError)
+async def assertion_error_handler(request: Request, e: AssertionError):
+    if str(e).startswith("login:"):
+        if request.method == "GET":
+            target = request.url.path
+            if request.url.query:
+                target = f"{target}?{request.url.query}"
+            return RedirectResponse(
+                url=f"/login?redirect={quote(target, safe='')}", status_code=302
+            )
+        if str(e) != "login":
+            raise HTTPException(401, str(e)[6:])
+    elif str(e).startswith("not_admin"):
+        return templates.TemplateResponse(
+            "admin/no_permission.html", {"request": request}
+        )
+    else:
+        raise e
+
 
 # 静态文件
 app.mount("/static", StaticFiles(directory=settings.base_dir / "static"), name="static")
@@ -58,15 +84,7 @@ async def health():
     return {"status": "ok", "app": settings.app_name}
 
 
-# 路由将在后续阶段导入
-from app.routers import admin_router, auth_router, dashboard_router, record_router
-
 app.include_router(auth_router)
 app.include_router(record_router)
 app.include_router(dashboard_router)
 app.include_router(admin_router)
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

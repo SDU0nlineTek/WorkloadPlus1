@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}工作量+1{% endblock %}</title>
     <!-- TailwindCSS (local vendor) -->
-    <script src="/static/vendor/tailwindcss-cdn.js"></script>
+    <script src="/static/tailwindcss-cdn.js"></script>
     <!-- HTMX (local vendor) -->
-    <script src="/static/vendor/htmx.min.js"></script>
+    <script src="/static/htmx.min.js"></script>
     <!-- 自定义样式 -->
     <link rel="stylesheet" href="/static/style.css">
     <style>
@@ -67,11 +67,13 @@
                 <span class="ml-3 font-semibold text-gray-800">工作量+1</span>
             </header>
 
-            <main class="app-content px-4 md:px-6 lg:px-8 py-6">
+                <main class="app-content px-2 md:px-6 lg:px-8 py-6">
     {% else %}
-            <main class="app-content px-4 py-6">
+                <main class="app-content px-2 py-6">
     {% endif %}
-                {% block content %}{% endblock %}
+                <div class="app-content-inner">
+                    {% block content %}{% endblock %}
+                </div>
             </main>
 
     {% if is_logged_in %}
