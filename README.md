@@ -18,9 +18,43 @@
 - 工作记录填报（支持批量提交）
 - 个人时间线查看与筛选
 - 部门统计与活动热力图
-- 成员管理与管理员权限控制
+- 部门管理（成员管理 + 项目可见性）
 - 结算周期管理与个人申报
-- Excel 导出（个人汇总 / 项目汇总）
+- Excel 导出（个人 / 项目 / 统计）
+
+## 近期更新（2026-03-06）
+
+- 全局部门上下文
+  - 侧边栏新增部门切换器，切换后全站按当前部门上下文工作。
+  - 管理端菜单按当前部门管理员权限动态显示。
+  - `/profile` 页面下线并重定向到 `/record`，移除侧边栏个人资料入口。
+
+- 热力图升级
+  - 时间线与管理端统计页热力图改为周日到周六排序。
+  - 增加星期与月份标注、格子悬浮提示。
+  - 时间线支持点击某天筛选，选中后其他日期变暗但不隐藏。
+  - 统一优化热力图容器尺寸，避免出现纵向滚动。
+
+- 部门管理重构
+  - 管理端“成员管理”升级为“部门管理”（路由：`/admin/department`）。
+  - 支持项目可见性开关，填报页项目下拉仅展示“可见”项目。
+  - 新增旧库兼容补丁：启动时自动为 `project` 表补齐 `is_visible` 字段（若缺失）。
+
+- 结算增强
+  - 新增结算项目维度信息：项目状态 + 项目总结。
+  - 管理员可在结算详情页按项目填写并保存，支持回显与校验。
+  - 项目状态选项改为 `StrEnum`。
+
+- 导出增强
+  - 导出重构为 3 个工作表：`个人`、`项目`、`统计`。
+  - 去除分钟列，统一使用小时列；总时长改为 Excel 公式计算。
+  - 支持按成员/项目分块合并单元格，提升可读性。
+  - `统计` 表新增项目统计（含状态/总结）与个人统计，左右并列布局。
+  - 导出文件名包含秒级时间戳与筛选条件（结算标题或自定义筛选条件）。
+  - Excel 文档元数据写入应用名（`creator` / `lastModifiedBy`）。
+
+- 配置与代码收敛
+  - 全局统一直接使用 `app.config.settings`，移除 `get_settings()` 单例调用路径。
 
 ## 技术栈
 
@@ -65,9 +99,9 @@ CommitMyLabor/
 
 2. 启动应用
 
-```shell
-uv run uvicorn app.main:app
-```
+    ```shell
+    uv run uvicorn app.main:app
+    ```
 
 启动后访问：`http://127.0.0.1:8000`
 
@@ -75,27 +109,27 @@ uv run uvicorn app.main:app
 
 - 初始化数据库
 
-```power
-uv run workload init-db
-```
+    ```shell
+    uv run workload init-db
+    ```
 
 - 生成测试数据
 
-```powershell
-uv run workload seed-data
-```
+    ```shell
+    uv run workload seed-data
+    ```
 
 - 创建部门
 
-```powershell
-uv run workload create-dept "新媒体中心"
-```
+    ```shell
+    uv run workload create-dept "新媒体中心"
+    ```
 
 - 查看部门列表
 
-```powershell
-uv run workload list-dept
-```
+    ```shell
+    uv run workload list-dept
+    ```
 
 ## 开发说明
 

@@ -13,14 +13,13 @@ from fastapi.templating import Jinja2Templates
 from httpx import Client, HTTPError
 from sqlmodel import Session, select
 
-from app.config import get_settings
+from app.config import settings
 from app.database import get_session
 from app.models import User, UserDeptLink
 from app.routers.deps import UserSession
 from app.uniform_login_des import strEnc
 
 router = APIRouter(tags=["认证"])
-settings = get_settings()
 templates = Jinja2Templates(directory=settings.base_dir / "templates")
 
 # 临时存储登录会话
@@ -206,18 +205,27 @@ async def logout(request: Request):
     return RedirectResponse(url="/login", status_code=302)
 
 
+@router.get("/switch-dept")
+async def switch_department(
+    s: UserSession,
+    dept_id: UUID = Query(...),
+    next: Optional[str] = Query(None),
+):
+    """切换当前部门上下文（侧边栏使用）。"""
+    if not any(link.dept_id == dept_id for link in s.user.dept_links):
+        raise HTTPException(400, "部门不存在或无访问权限")
+
+    s.request.session["current_dept_id"] = str(dept_id)
+    s.request.session["current_dept_is_admin"] = s.user.is_dept_admin(s.db, dept_id)
+
+    target = _safe_redirect_target(next)
+    return RedirectResponse(url=target, status_code=302)
+
+
 @router.get("/profile", response_class=HTMLResponse)
 async def profile_page(s: UserSession):
-    """个人资料页面"""
-
-    return templates.TemplateResponse(
-        "profile.html",
-        {
-            "request": s.request,
-            "user": s.user,
-            "departments": s.user.dept_list(),
-        },
-    )
+    """个人资料页面已移除，保留重定向兼容。"""
+    return RedirectResponse(url="/record", status_code=302)
 
 
 @router.post("/auth/debug-login/{user_id}")

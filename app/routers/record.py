@@ -1,6 +1,6 @@
 """工作记录路由"""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Query
@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlmodel import col, select
 
-from app.config import get_settings
+from app.config import settings
 from app.models import (
     Department,
     Project,
@@ -21,7 +21,6 @@ from app.models import (
 from app.routers.deps import UseridSession, UserSession
 
 router = APIRouter(tags=["工作记录"])
-settings = get_settings()
 templates = Jinja2Templates(directory=settings.base_dir / "templates")
 
 
@@ -52,6 +51,24 @@ async def record_page(
     session = s.db
 
     user_dept_ids = [link.dept_id for link in user.dept_links]
+    current_dept_id = None
+    current_dept_name = ""
+    selected_raw = request.session.get("current_dept_id")
+    if selected_raw:
+        try:
+            selected_id = UUID(selected_raw)
+            current_link = next(
+                (link for link in user.dept_links if link.dept_id == selected_id), None
+            )
+            if current_link:
+                current_dept_id = current_link.dept_id
+                current_dept_name = current_link.department.name
+        except TypeError, ValueError:
+            pass
+
+    if not current_dept_id and user.dept_links:
+        current_dept_id = user.dept_links[0].dept_id
+        current_dept_name = user.dept_links[0].department.name
 
     # 首页申报入口：当前用户所属部门的开放结算周期
     claim_entries = []
@@ -101,7 +118,8 @@ async def record_page(
         {
             "request": request,
             "user": user,
-            "departments": user.dept_list(),
+            "current_dept_id": current_dept_id,
+            "current_dept_name": current_dept_name,
             "today_records": today_records,
             "today_hours": today_hours,
             "today_mins": today_mins,
@@ -137,19 +155,16 @@ async def get_project_dropdown(
     """获取部门项目下拉选项（HTMX端点）"""
     session = s.db
 
-    # 获取部门配置的活跃窗口
+    # 验证部门
     dept = session.get(Department, dept_id)
     if not dept:
         return HTMLResponse('<option value="">请选择项目</option>')
 
-    window_months = dept.active_project_window_months
-    cutoff_date = datetime.now() - timedelta(days=window_months * 30)
-
-    # 查询活跃项目
+    # 查询管理员设为可见的项目
     projects = session.exec(
         select(Project)
         .where(Project.dept_id == dept_id)
-        .where(Project.last_active_at >= cutoff_date)
+        .where(Project.is_visible)
         .order_by(col(Project.last_active_at).desc())
     ).all()
 

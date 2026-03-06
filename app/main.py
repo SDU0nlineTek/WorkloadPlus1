@@ -9,11 +9,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import get_settings
+from app.config import settings
 from app.database import create_db_and_tables
 from app.routers import admin_router, auth_router, dashboard_router, record_router
-
-settings = get_settings()
 
 # 确保目录存在
 (settings.base_dir / "static").mkdir(exist_ok=True)

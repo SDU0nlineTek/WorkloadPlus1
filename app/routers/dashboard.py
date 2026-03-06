@@ -9,16 +9,14 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import col, select
 
-from app.config import get_settings
+from app.config import settings
 from app.models import (
-    UserDeptLink,
     WorkRecord,
 )
 from app.routers.deps import UseridSessionOptional, UserSession
 from app.services.activity_heatmap import build_activity_heatmap
 
 router = APIRouter(tags=["时间线"])
-settings = get_settings()
 templates = Jinja2Templates(directory=settings.base_dir / "templates")
 
 
@@ -27,6 +25,7 @@ async def timeline_page(
     s: UserSession,
     month: Optional[str] = Query(None),  # 格式: 2024-01
     dept_id: Optional[UUID] = Query(None),
+    day: Optional[str] = Query(None),  # 格式: 2024-01-31
 ):
     """个人时间线页面"""
     request = s.request
@@ -34,11 +33,19 @@ async def timeline_page(
     user = s.user
     user_id = user.id
 
-    # 获取用户所属部门
-    links = session.exec(
-        select(UserDeptLink).where(UserDeptLink.user_id == user_id)
-    ).all()
-    departments = [{"id": link.dept_id, "name": link.department.name} for link in links]
+    # 解析当前部门（来自侧边栏选择），并兼容旧参数。
+    user_dept_ids = {link.dept_id for link in user.dept_links}
+    selected_dept_id = dept_id
+    if not selected_dept_id:
+        selected_raw = request.session.get("current_dept_id")
+        if selected_raw:
+            try:
+                selected_dept_id = UUID(selected_raw)
+            except TypeError, ValueError:
+                selected_dept_id = None
+
+    if selected_dept_id and selected_dept_id not in user_dept_ids:
+        selected_dept_id = None
 
     # 构建查询
     query = select(WorkRecord).where(WorkRecord.user_id == user_id)
@@ -58,11 +65,27 @@ async def timeline_page(
             pass
 
     # 按部门筛选
-    if dept_id:
-        query = query.where(WorkRecord.dept_id == dept_id)
+    if selected_dept_id:
+        query = query.where(WorkRecord.dept_id == selected_dept_id)
+
+    # 热力图保持按月份/部门口径，不跟随按天筛选缩小范围。
+    heatmap_query = query
+
+    # 按日期筛选
+    if day:
+        try:
+            day_start = datetime.strptime(day, "%Y-%m-%d")
+            day_end = day_start + timedelta(days=1)
+            query = query.where(WorkRecord.created_at >= day_start)
+            query = query.where(WorkRecord.created_at < day_end)
+        except ValueError:
+            pass
 
     # 获取记录
     records = session.exec(query.order_by(col(WorkRecord.created_at).desc())).all()
+    heatmap_records = session.exec(
+        heatmap_query.order_by(col(WorkRecord.created_at).desc())
+    ).all()
 
     # 按日期分组
     grouped_records = {}
@@ -97,20 +120,18 @@ async def timeline_page(
     total_hours = total_minutes // 60
     total_mins = total_minutes % 60
 
-    # 近20周活动热力图（按当前筛选口径）
-    heatmap_timestamps = [r.created_at for r in records]
-    activity_heatmap = build_activity_heatmap(heatmap_timestamps, weeks=20)
+    heatmap_timestamps = [r.created_at for r in heatmap_records]
+    activity_heatmap = build_activity_heatmap(heatmap_timestamps)
 
     return templates.TemplateResponse(
         "timeline.html",
         {
             "request": request,
             "user": user,
-            "departments": departments,
             "grouped_records": grouped_records,
             "months": months,
             "current_month": month,
-            "current_dept_id": dept_id,
+            "current_day": day,
             "total_hours": total_hours,
             "total_mins": total_mins,
             "record_count": len(records),

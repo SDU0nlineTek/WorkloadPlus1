@@ -1,6 +1,8 @@
 """管理员路由"""
 
+import re
 from datetime import datetime
+from enum import StrEnum
 from typing import Optional
 from urllib.parse import quote, urlencode
 from uuid import UUID
@@ -10,12 +12,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import col, desc, func, select
 
-from app.config import get_settings
+from app.config import settings
 from app.models import (
     Department,
     Project,
     SettlementClaim,
     SettlementPeriod,
+    SettlementProjectSummary,
+    User,
     UserDeptLink,
     WorkRecord,
 )
@@ -24,8 +28,14 @@ from app.services.activity_heatmap import build_activity_heatmap
 from app.services.excel_exporter import create_export_workbook
 
 router = APIRouter(prefix="/admin", tags=["管理员"])
-settings = get_settings()
+
 templates = Jinja2Templates(directory=settings.base_dir / "templates")
+
+
+class PROJECT_STATUS_OPTIONS(StrEnum):
+    IN_PROGRESS = "进行中"
+    PENDING_LAUNCH = "待上线"
+    DONE = "已完工"
 
 
 @router.get("/stats", response_class=HTMLResponse)
@@ -134,9 +144,7 @@ async def stats_page(
         )
 
     dept_records = s.db.exec(department_query).all()
-    department_heatmap = build_activity_heatmap(
-        [r.created_at for r in dept_records], weeks=20
-    )
+    department_heatmap = build_activity_heatmap([r.created_at for r in dept_records])
 
     selected_member = next((m for m in members if user_id and m["id"] == user_id), None)
     selected_project = next(
@@ -153,9 +161,7 @@ async def stats_page(
     filtered_records = s.db.exec(
         filtered_query.order_by(desc(WorkRecord.created_at))
     ).all()
-    filter_heatmap = build_activity_heatmap(
-        [r.created_at for r in filtered_records], weeks=20
-    )
+    filter_heatmap = build_activity_heatmap([r.created_at for r in filtered_records])
 
     return templates.TemplateResponse(
         "admin/stats.html",
@@ -180,11 +186,11 @@ async def stats_page(
     )
 
 
-@router.get("/members", response_class=HTMLResponse)
-async def members_page(
+@router.get("/department", response_class=HTMLResponse)
+async def department_page(
     s: AdminSession,
 ):
-    """成员管理页面"""
+    """部门管理页面（成员与项目可见性）"""
     request = s.request
     dept = s.dept
     dept_id = dept.id
@@ -212,22 +218,68 @@ async def members_page(
             }
         )
 
+    projects = s.db.exec(
+        select(Project)
+        .where(Project.dept_id == dept_id)
+        .order_by(col(Project.last_active_at).desc())
+    ).all()
+
+    project_items = []
+    for project in projects:
+        project_record_count = (
+            s.db.exec(
+                select(func.count(col(WorkRecord.id))).where(
+                    WorkRecord.project_id == project.id
+                )
+            ).first()
+            or 0
+        )
+        project_items.append(
+            {
+                "id": project.id,
+                "name": project.name,
+                "is_visible": project.is_visible,
+                "last_active": project.last_active_at,
+                "record_count": project_record_count,
+            }
+        )
+
     join_link = f"{str(s.request.base_url).rstrip('/')}/admin/join/{dept_id}"
 
     return templates.TemplateResponse(
-        "admin/members.html",
+        "admin/department.html",
         {
             "request": request,
             "admin_depts": s.user.admin_dept_list(),
             "current_dept_id": dept_id,
+            "current_dept_name": dept.name,
             "members": members,
+            "projects": project_items,
             "join_link": join_link,
             "current_user_id": s.user.id,
         },
     )
 
 
-@router.post("/members/{dept_id}/{member_id}/remove")
+@router.post("/department/projects/{project_id}/visibility")
+async def update_project_visibility(
+    s: AdminSession,
+    project_id: UUID,
+    is_visible: bool = Form(...),
+):
+    """更新项目可见性。"""
+    project = s.db.get(Project, project_id)
+    if not project or project.dept_id != s.dept.id:
+        raise HTTPException(404, "项目不存在")
+
+    project.is_visible = is_visible
+    s.db.add(project)
+    s.db.commit()
+
+    return RedirectResponse(url="/admin/department", status_code=302)
+
+
+@router.post("/department/{dept_id}/{member_id}/remove")
 async def remove_member(
     s: DeptAdminSession,
     dept_id: UUID,
@@ -262,7 +314,7 @@ async def remove_member(
     s.db.delete(link)
     s.db.commit()
 
-    return RedirectResponse(url=f"/admin/members?dept_id={dept_id}", status_code=302)
+    return RedirectResponse(url=f"/admin/department?dept_id={dept_id}", status_code=302)
 
 
 @router.get("/join/{dept_id}")
@@ -353,6 +405,7 @@ async def settlement_page(
             "request": s.request,
             "admin_depts": s.user.admin_dept_list(),
             "current_dept_id": s.dept.id,
+            "current_dept_name": s.dept.name,
             "period_stats": period_stats,
         },
     )
@@ -413,6 +466,7 @@ async def close_settlement(
 async def settlement_claims(
     s: UserSession,
     period_id: UUID,
+    saved: bool = Query(False),
 ):
     """查看结算周期申报情况"""
     request = s.request
@@ -422,6 +476,70 @@ async def settlement_claims(
         raise HTTPException(404, "结算周期不存在")
     if not s.user.is_dept_admin(s.db, period.dept_id):
         raise HTTPException(403, "无管理员权限")
+
+    period_records = s.db.exec(
+        select(WorkRecord)
+        .where(WorkRecord.dept_id == period.dept_id)
+        .where(WorkRecord.created_at >= period.start_date)
+        .where(WorkRecord.created_at <= period.end_date)
+        .order_by(col(WorkRecord.created_at).asc())
+    ).all()
+
+    involved_project_ids = []
+    seen_ids: set[UUID] = set()
+    for record in period_records:
+        if record.project_id in seen_ids:
+            continue
+        seen_ids.add(record.project_id)
+        involved_project_ids.append(record.project_id)
+
+    involved_projects = []
+    if involved_project_ids:
+        involved_projects = s.db.exec(
+            select(Project)
+            .where(col(Project.id).in_(involved_project_ids))
+            .order_by(col(Project.name).asc())
+        ).all()
+
+    existing_summaries = s.db.exec(
+        select(SettlementProjectSummary).where(
+            SettlementProjectSummary.period_id == period_id
+        )
+    ).all()
+    summary_by_project_id = {item.project_id: item for item in existing_summaries}
+
+    project_stats: dict[UUID, dict[str, float | int]] = {}
+    for record in period_records:
+        stats = project_stats.setdefault(
+            record.project_id,
+            {
+                "record_count": 0,
+                "total_hours": 0.0,
+            },
+        )
+        stats["record_count"] = int(stats["record_count"]) + 1
+        stats["total_hours"] = float(stats["total_hours"]) + (
+            record.duration_minutes / 60
+        )
+
+    project_summary_rows = []
+    for project in involved_projects:
+        saved_summary = summary_by_project_id.get(project.id)
+        stats = project_stats.get(project.id, {"record_count": 0, "total_hours": 0.0})
+        project_summary_rows.append(
+            {
+                "project": project,
+                "status": (
+                    saved_summary.status
+                    if saved_summary
+                    else PROJECT_STATUS_OPTIONS.IN_PROGRESS.value
+                ),
+                "summary": saved_summary.summary if saved_summary else "",
+                "record_count": int(stats["record_count"]),
+                "total_hours": round(float(stats["total_hours"]), 2),
+            }
+        )
+
     member_data = []
     for u in period.department.users:
         # 系统记录工时
@@ -448,7 +566,75 @@ async def settlement_claims(
             "request": request,
             "period": period,
             "member_data": member_data,
+            "project_summary_rows": project_summary_rows,
+            "project_status_options": [item.value for item in PROJECT_STATUS_OPTIONS],
+            "saved": saved,
         },
+    )
+
+
+@router.post("/settlement/{period_id}/project-summaries")
+async def save_settlement_project_summaries(
+    s: UserSession,
+    period_id: UUID,
+    project_id: list[UUID] = Form(...),
+    status: list[str] = Form(...),
+    summary: list[str] = Form(...),
+):
+    """保存结算周期项目状态与总结"""
+    period = s.db.get(SettlementPeriod, period_id)
+    if not period:
+        raise HTTPException(404, "结算周期不存在")
+    s.user.require_admin(s.db, period.dept_id)
+
+    if not (len(project_id) == len(status) == len(summary)):
+        raise HTTPException(400, "提交数据格式错误")
+
+    allowed_projects = s.db.exec(
+        select(Project.id).where(Project.dept_id == period.dept_id)
+    ).all()
+    allowed_project_ids = set(allowed_projects)
+
+    existing_rows = s.db.exec(
+        select(SettlementProjectSummary).where(
+            SettlementProjectSummary.period_id == period_id
+        )
+    ).all()
+    existing_map = {row.project_id: row for row in existing_rows}
+
+    for idx, pid in enumerate(project_id):
+        if pid not in allowed_project_ids:
+            raise HTTPException(400, "包含非法项目")
+
+        current_status = status[idx].strip()
+        current_summary = summary[idx].strip()
+
+        try:
+            current_status = PROJECT_STATUS_OPTIONS(current_status).value
+        except ValueError:
+            raise HTTPException(400, "项目状态不合法")
+        if not current_summary:
+            raise HTTPException(400, "项目总结不能为空")
+
+        existing = existing_map.get(pid)
+        if existing:
+            existing.status = current_status
+            existing.summary = current_summary
+            existing.updated_at = datetime.now()
+            continue
+
+        s.db.add(
+            SettlementProjectSummary(
+                period_id=period_id,
+                project_id=pid,
+                status=current_status,
+                summary=current_summary,
+            )
+        )
+
+    s.db.commit()
+    return RedirectResponse(
+        url=f"/admin/settlement/{period_id}/claims?saved=1", status_code=302
     )
 
 
@@ -609,7 +795,36 @@ async def download_export(
     if not dept:
         raise HTTPException(404, "部门不存在")
 
-    filename = f"工作量导出_{dept.name}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    period = s.db.get(SettlementPeriod, period_id) if period_id else None
+    if period:
+        filter_label = period.title
+    else:
+        custom_parts: list[str] = []
+
+        if user_id:
+            selected_user = s.db.get(User, user_id)
+            if selected_user:
+                custom_parts.append(f"成员-{selected_user.name}")
+
+        if project_id:
+            selected_project = s.db.get(Project, project_id)
+            if selected_project:
+                custom_parts.append(f"项目-{selected_project.name}")
+
+        if not custom_parts:
+            custom_parts.append("全部成员项目")
+
+        if start_date or end_date:
+            custom_parts.append(f"{start_date or '起始'}~{end_date or '结束'}")
+
+        filter_label = "_".join(custom_parts)
+
+    # Windows/macOS/Linux 保守文件名清洗
+    safe_dept_name = re.sub(r'[\\/:*?"<>|]', "_", dept.name).strip() or "部门"
+    safe_filter_label = re.sub(r'[\\/:*?"<>|]', "_", filter_label).strip() or "筛选"
+    export_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    filename = f"{export_time}_{safe_dept_name}_{safe_filter_label}_工作量.xlsx"
     encoded_filename = quote(filename)
 
     return StreamingResponse(

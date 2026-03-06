@@ -112,10 +112,14 @@ class Project(Table, table=True):
 
     dept_id: UUID = Field(foreign_key="department.id", index=True)
     name: str = Field(max_length=200)
+    is_visible: bool = Field(default=True)
     last_active_at: datetime = Field(default_factory=datetime.now)
 
     department: "Department" = Relationship(back_populates="projects")
     work_records: list["WorkRecord"] = Relationship(back_populates="project")
+    settlement_summaries: list["SettlementProjectSummary"] = Relationship(
+        back_populates="project"
+    )
 
 
 class WorkRecord(Table, table=True):
@@ -151,6 +155,9 @@ class SettlementPeriod(Table, table=True):
 
     department: "Department" = Relationship(back_populates="settlement_periods")
     claims: list["SettlementClaim"] = Relationship(back_populates="period")
+    project_summaries: list["SettlementProjectSummary"] = Relationship(
+        back_populates="period"
+    )
 
 
 class SettlementClaim(Table, table=True):
@@ -168,3 +175,18 @@ class SettlementClaim(Table, table=True):
 
     period: "SettlementPeriod" = Relationship(back_populates="claims")
     user: "User" = Relationship(back_populates="settlement_claims")
+
+
+class SettlementProjectSummary(Table, table=True):
+    """结算周期内项目状态与总结"""
+
+    __tablename__: ClassVar[str] = "settlement_project_summary"
+
+    period_id: UUID = Field(foreign_key="settlement_period.id", index=True)
+    project_id: UUID = Field(foreign_key="project.id", index=True)
+    status: str = Field(max_length=20)
+    summary: str = Field(max_length=2000)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+    period: "SettlementPeriod" = Relationship(back_populates="project_summaries")
+    project: "Project" = Relationship(back_populates="settlement_summaries")

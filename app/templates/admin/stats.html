@@ -4,20 +4,9 @@
 
 {% block content %}
 <div class="space-y-6">
-    <!-- 部门选择 -->
     <div class="bg-white rounded-xl shadow-sm p-4">
         <form class="space-y-3" action="/admin/stats" method="GET">
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <div>
-                    <label class="block text-sm text-gray-600 mb-1">当前部门</label>
-                    <select name="dept_id" aria-label="选择管理部门" title="选择管理部门"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm">
-                        {% for dept in admin_depts %}
-                        <option value="{{ dept.id }}" {% if dept.id == current_dept_id %}selected{% endif %}>{{ dept.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
                     <label class="block text-sm text-gray-600 mb-1">开始日期</label>
                     <input type="date" name="start_date" value="{{ start_date or '' }}" title="开始日期"
@@ -43,15 +32,30 @@
     <div class="bg-white rounded-xl shadow-sm p-6">
         <h3 class="text-lg font-bold text-gray-800 mb-4">部门活动热力图</h3>
         <p class="text-sm text-gray-500 mb-3">{{ dept.name }} 最近 {{ department_heatmap.total_days }} 天活跃情况</p>
-        <div class="overflow-x-auto">
-            <div class="min-w-max flex gap-1">
-                {% for week in department_heatmap.weeks %}
-                <div class="flex flex-col gap-1">
-                    {% for day in week %}
-                    <div class="heatmap-cell heatmap-l{{ day.level }}" title="{{ day.date }}: {{ day.count }} 条"></div>
+        <div class="overflow-x-auto heatmap-scroll">
+            <div class="heatmap-wrap min-w-max">
+                <div class="heatmap-months">
+                    <span class="heatmap-month-spacer"></span>
+                    {% for label in department_heatmap.month_labels %}
+                    <span class="heatmap-month-label">{{ label }}</span>
                     {% endfor %}
                 </div>
-                {% endfor %}
+                <div class="heatmap-grid-row">
+                    <div class="heatmap-weekday-labels" aria-hidden="true">
+                        {% for weekday in department_heatmap.weekday_labels %}
+                        <span>{{ weekday }}</span>
+                        {% endfor %}
+                    </div>
+                    <div class="heatmap-columns">
+                        {% for week in department_heatmap.weeks %}
+                        <div class="heatmap-week-col">
+                            {% for day in week %}
+                            <div class="heatmap-cell heatmap-l{{ day.level }}{% if not day.in_range %} heatmap-cell-outside{% endif %}" title="{{ day.date }}: {{ day.count }} 条"></div>
+                            {% endfor %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
             </div>
         </div>
         <div class="mt-3 text-xs text-gray-500 flex items-center gap-2">
@@ -157,15 +161,30 @@
             </div>
 
             {% if selected_user_id or selected_filter_project_id %}
-            <div class="overflow-x-auto mb-4">
-                <div class="min-w-max flex gap-1">
-                    {% for week in filter_heatmap.weeks %}
-                    <div class="flex flex-col gap-1">
-                        {% for day in week %}
-                        <div class="heatmap-cell heatmap-l{{ day.level }}" title="{{ day.date }}: {{ day.count }} 条"></div>
+            <div class="overflow-x-auto heatmap-scroll mb-4">
+                <div class="heatmap-wrap min-w-max">
+                    <div class="heatmap-months">
+                        <span class="heatmap-month-spacer"></span>
+                        {% for label in filter_heatmap.month_labels %}
+                        <span class="heatmap-month-label">{{ label }}</span>
                         {% endfor %}
                     </div>
-                    {% endfor %}
+                    <div class="heatmap-grid-row">
+                        <div class="heatmap-weekday-labels" aria-hidden="true">
+                            {% for weekday in filter_heatmap.weekday_labels %}
+                            <span>{{ weekday }}</span>
+                            {% endfor %}
+                        </div>
+                        <div class="heatmap-columns">
+                            {% for week in filter_heatmap.weeks %}
+                            <div class="heatmap-week-col">
+                                {% for day in week %}
+                                <div class="heatmap-cell heatmap-l{{ day.level }}{% if not day.in_range %} heatmap-cell-outside{% endif %}" title="{{ day.date }}: {{ day.count }} 条"></div>
+                                {% endfor %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
                 </div>
             </div>
             {% endif %}

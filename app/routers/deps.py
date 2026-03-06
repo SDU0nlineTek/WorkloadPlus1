@@ -11,6 +11,42 @@ from app.database import get_session
 from app.models import Department, User, UserDeptLink
 
 
+def _sync_user_dept_context(request: Request, db: Session, user: User) -> None:
+    """Keep current department context in session for global sidebar switcher."""
+    dept_options = user.dept_list()
+    request.session["dept_options"] = [
+        {
+            "id": str(dept["id"]),
+            "name": dept["name"],
+            "is_admin": dept["is_admin"],
+        }
+        for dept in dept_options
+    ]
+
+    selected_raw = request.session.get("current_dept_id")
+    selected_dept_id = None
+    if selected_raw:
+        try:
+            selected_dept_id = UUID(selected_raw)
+        except TypeError, ValueError:
+            selected_dept_id = None
+
+    valid_dept_ids = {dept["id"] for dept in dept_options}
+    if selected_dept_id not in valid_dept_ids:
+        selected_dept_id = dept_options[0]["id"] if dept_options else None
+
+    if selected_dept_id:
+        request.session["current_dept_id"] = str(selected_dept_id)
+    else:
+        request.session.pop("current_dept_id", None)
+
+    selected_is_admin = bool(
+        selected_dept_id and user.is_dept_admin(db, selected_dept_id)
+    )
+    request.session["current_dept_is_admin"] = selected_is_admin
+    request.session["is_admin"] = len(user.admin_dept_list()) > 0
+
+
 @dataclass
 class RequestDep:
     request: Request
@@ -87,6 +123,7 @@ async def get_user_session(s: UseridSession) -> UserSessionDep:
     """获取当前用户（必需，未登录抛出异常）"""
     user = s.db.get(User, s.user_id)
     assert user, "login:用户不存在"
+    _sync_user_dept_context(s.request, s.db, user)
     return UserSessionDep(request=s.request, db=s.db, user=user)
 
 
@@ -96,6 +133,8 @@ UserSession = Annotated[UserSessionDep, Depends(get_user_session)]
 async def get_user_session_optional(s: UseridSessionOptional) -> UserSessionOptionalDep:
     """获取当前用户（可选，未登录返回None）"""
     user = s.db.get(User, s.user_id) if s.user_id else None
+    if user:
+        _sync_user_dept_context(s.request, s.db, user)
     return UserSessionOptionalDep(request=s.request, db=s.db, user=user)
 
 
@@ -111,10 +150,21 @@ async def get_admin_session(
     admin_depts = s.user.admin_dept_list()
     if len(admin_depts) == 0:
         assert False, "not_admin"
+
     if not dept_id:
-        dept_id = admin_depts[0]["id"]  # 默认选择第一个部门
-    if not any(d["id"] == dept_id for d in admin_depts):  # 验证权限
+        selected_raw = s.request.session.get("current_dept_id")
+        if selected_raw:
+            try:
+                dept_id = UUID(selected_raw)
+            except TypeError, ValueError:
+                dept_id = None
+
+    if not dept_id:
         dept_id = admin_depts[0]["id"]
+
+    if not any(d["id"] == dept_id for d in admin_depts):
+        assert False, "not_admin"
+
     dept = s.db.exec(select(Department).where(Department.id == dept_id)).one()
     return AdminSessionDep(request=s.request, db=s.db, user=s.user, dept=dept)
 
