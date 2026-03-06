@@ -89,7 +89,6 @@ class Department(Table, table=True):
     """部门表"""
 
     name: str = Field(max_length=100, unique=True)
-    active_project_window_months: int = Field(default=3)
 
     user_links: list["UserDeptLink"] = Relationship(
         back_populates="department",

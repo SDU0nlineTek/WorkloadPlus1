@@ -1,14 +1,17 @@
 """认证依赖工具"""
 
 from dataclasses import dataclass
-from typing import Annotated, Optional
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, Query, Request
+from fastapi import Depends, Request
+from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
-from app.database import get_session
-from app.models import Department, User, UserDeptLink
+from app.core import SessionDep, settings
+from app.models import Department, SettlementPeriod, User
+
+templates = Jinja2Templates(directory=settings.base_dir / "templates")
 
 
 def _sync_user_dept_context(request: Request, db: Session, user: User) -> None:
@@ -54,11 +57,6 @@ class RequestDep:
 
 
 @dataclass
-class UseridSessionOptionalDep(RequestDep):
-    user_id: Optional[UUID]
-
-
-@dataclass
 class UseridSessionDep(RequestDep):
     user_id: UUID
 
@@ -66,11 +64,6 @@ class UseridSessionDep(RequestDep):
 @dataclass
 class UserSessionDep(RequestDep):
     user: User
-
-
-@dataclass
-class UserSessionOptionalDep(RequestDep):
-    user: Optional[User]
 
 
 @dataclass
@@ -85,9 +78,19 @@ class DeptAdminSessionDep(RequestDep):
     dept: Department
 
 
-async def get_session_user_id(
-    request: Request, db: Session = Depends(get_session)
-) -> UseridSessionDep:
+@dataclass
+class PeriodUserSessionDep(RequestDep):
+    user: User
+    dept: Department
+    period: SettlementPeriod
+
+
+@dataclass
+class PeriodAdminSessionDep(PeriodUserSessionDep):
+    pass
+
+
+async def get_session_user_id(request: Request, db: SessionDep) -> UseridSessionDep:
     user_id = request.session.get("user_id")
     assert user_id, "login:未登录"
     try:
@@ -97,26 +100,6 @@ async def get_session_user_id(
 
 
 UseridSession = Annotated[UseridSessionDep, Depends(get_session_user_id)]
-
-
-async def get_session_user_id_optional(
-    request: Request, db: Session = Depends(get_session)
-) -> UseridSessionOptionalDep:
-    """获取当前用户ID（可选，未登录返回None）"""
-    user_id_raw = request.session.get("user_id")
-    if not user_id_raw:
-        return UseridSessionOptionalDep(request=request, db=db, user_id=None)
-    try:
-        return UseridSessionOptionalDep(
-            request=request, db=db, user_id=UUID(user_id_raw)
-        )
-    except TypeError, ValueError:
-        return UseridSessionOptionalDep(request=request, db=db, user_id=None)
-
-
-UseridSessionOptional = Annotated[
-    UseridSessionOptionalDep, Depends(get_session_user_id_optional)
-]
 
 
 async def get_user_session(s: UseridSession) -> UserSessionDep:
@@ -130,60 +113,43 @@ async def get_user_session(s: UseridSession) -> UserSessionDep:
 UserSession = Annotated[UserSessionDep, Depends(get_user_session)]
 
 
-async def get_user_session_optional(s: UseridSessionOptional) -> UserSessionOptionalDep:
-    """获取当前用户（可选，未登录返回None）"""
-    user = s.db.get(User, s.user_id) if s.user_id else None
-    if user:
-        _sync_user_dept_context(s.request, s.db, user)
-    return UserSessionOptionalDep(request=s.request, db=s.db, user=user)
-
-
-UserSessionOptional = Annotated[
-    UserSessionOptionalDep, Depends(get_user_session_optional)
-]
-
-
-async def get_admin_session(
-    s: UserSession, dept_id: Optional[UUID] = Query(None)
-) -> AdminSessionDep:
-    """获取当前用户及其第一个管理员部门（必需，未登录或无管理员部门抛出异常）"""
-    admin_depts = s.user.admin_dept_list()
-    if len(admin_depts) == 0:
-        assert False, "not_admin"
-
-    if not dept_id:
-        selected_raw = s.request.session.get("current_dept_id")
-        if selected_raw:
-            try:
-                dept_id = UUID(selected_raw)
-            except TypeError, ValueError:
-                dept_id = None
-
-    if not dept_id:
-        dept_id = admin_depts[0]["id"]
-
-    if not any(d["id"] == dept_id for d in admin_depts):
-        assert False, "not_admin"
-
-    dept = s.db.exec(select(Department).where(Department.id == dept_id)).one()
+async def get_admin_session(s: UserSession) -> AdminSessionDep:
+    """获取当前管理员和部门"""
+    assert s.request.session.get("current_dept_is_admin"), "not_admin"
+    dept = s.db.exec(
+        select(Department).where(
+            Department.id == UUID(s.request.session["current_dept_id"])
+        )
+    ).one()
     return AdminSessionDep(request=s.request, db=s.db, user=s.user, dept=dept)
 
 
 AdminSession = Annotated[AdminSessionDep, Depends(get_admin_session)]
 
 
-async def get_dept_admin_session(s: UserSession, dept_id: UUID) -> DeptAdminSessionDep:
-    """获取当前用户及其管理员部门（必需，未登录或无管理员部门抛出异常）"""
-    link = s.db.exec(
-        select(UserDeptLink)
-        .where(UserDeptLink.dept_id == dept_id)
-        .where(UserDeptLink.user_id == s.user.id)
-        .where(UserDeptLink.is_admin)
-    ).first()
-    assert link, "not_admin"
-    return DeptAdminSessionDep(
-        request=s.request, db=s.db, user=s.user, dept=link.department
+async def get_period_user_session(
+    s: UserSession, period_id: UUID
+) -> PeriodUserSessionDep:
+    """获取当前用户及其部门和结算周期（必需，未登录或无访问权限抛出异常）"""
+    period = s.db.get(SettlementPeriod, period_id)
+    assert period, "not_found:结算周期不存在"
+    assert period.dept_id == UUID(s.request.session["current_dept_id"]), (
+        "not_found:结算周期不存在或无访问权限"
+    )
+    return PeriodUserSessionDep(
+        request=s.request, db=s.db, user=s.user, dept=period.department, period=period
     )
 
 
-DeptAdminSession = Annotated[DeptAdminSessionDep, Depends(get_dept_admin_session)]
+PeriodUserSession = Annotated[PeriodUserSessionDep, Depends(get_period_user_session)]
+
+
+async def get_period_admin_session(s: PeriodUserSession) -> PeriodAdminSessionDep:
+    """获取当前用户及其管理员部门（必需，未登录或无管理员部门抛出异常）"""
+    assert s.request.session.get("current_dept_is_admin"), "not_admin"
+    return PeriodAdminSessionDep(
+        request=s.request, db=s.db, user=s.user, dept=s.dept, period=s.period
+    )
+
+
+PeriodAdminSession = Annotated[PeriodAdminSessionDep, Depends(get_period_admin_session)]

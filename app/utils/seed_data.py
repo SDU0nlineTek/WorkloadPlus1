@@ -5,7 +5,7 @@ from random import choice, randint
 
 from sqlmodel import Session, func, select
 
-from app.database import create_db_and_tables, engine
+from app.core import create_db_and_tables, engine
 from app.models import (
     Department,
     Project,
@@ -30,16 +30,14 @@ def create_test_data():
 
         # 1. 创建部门
         departments_data = [
-            {"name": "新媒体中心", "window_months": 3},
-            {"name": "技术部", "window_months": 3},
-            {"name": "运营部", "window_months": 2},
+            {"name": "新媒体中心"},
+            {"name": "技术部"},
+            {"name": "运营部"},
         ]
 
         depts = []
         for data in departments_data:
-            dept = Department(
-                name=data["name"], active_project_window_months=data["window_months"]
-            )
+            dept = Department(name=data["name"])
             session.add(dept)
             depts.append(dept)
         session.commit()

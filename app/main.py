@@ -6,16 +6,11 @@ from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import settings
-from app.database import create_db_and_tables
+from app.core import create_db_and_tables, settings
 from app.routers import admin_router, auth_router, dashboard_router, record_router
-
-# 确保目录存在
-(settings.base_dir / "static").mkdir(exist_ok=True)
-(settings.base_dir / "templates").mkdir(exist_ok=True)
+from app.routers.deps import templates
 
 
 @asynccontextmanager
@@ -37,8 +32,12 @@ app = FastAPI(
 )
 
 # Session 中间件
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
-templates = Jinja2Templates(directory=settings.base_dir / "templates")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.secret_key,
+    session_cookie=settings.session_cookie,
+    max_age=settings.session_max_age,
+)
 
 
 @app.exception_handler(AssertionError)
@@ -57,6 +56,8 @@ async def assertion_error_handler(request: Request, e: AssertionError):
         return templates.TemplateResponse(
             "admin/no_permission.html", {"request": request}
         )
+    elif str(e).startswith("not_found:"):
+        raise HTTPException(404, str(e)[10:])
     else:
         raise e
 
@@ -65,7 +66,6 @@ async def assertion_error_handler(request: Request, e: AssertionError):
 app.mount("/static", StaticFiles(directory=settings.base_dir / "static"), name="static")
 
 # 模板引擎
-templates = Jinja2Templates(directory=settings.base_dir / "templates")
 
 
 @app.get("/")

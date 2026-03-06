@@ -22,12 +22,23 @@
 - 结算周期管理与个人申报
 - Excel 导出（个人 / 项目 / 统计）
 
+## 配置说明
+
+项目使用 `.env` 读取运行配置（见 `.env.example`）：
+
+- `debug`
+- `database_url`
+- `secret_key`
+- `session_cookie`
+- `session_max_age`
+
 ## 近期更新（2026-03-06）
 
 - 全局部门上下文
   - 侧边栏新增部门切换器，切换后全站按当前部门上下文工作。
   - 管理端菜单按当前部门管理员权限动态显示。
   - `/profile` 页面下线并重定向到 `/record`，移除侧边栏个人资料入口。
+  - Session 配置支持通过环境变量注入 `session_cookie` 和 `session_max_age`。
 
 - 热力图升级
   - 时间线与管理端统计页热力图改为周日到周六排序。
@@ -38,12 +49,16 @@
 - 部门管理重构
   - 管理端“成员管理”升级为“部门管理”（路由：`/admin/department`）。
   - 支持项目可见性开关，填报页项目下拉仅展示“可见”项目。
+  - 成员管理中管理员不能被移除（后端限制 + 前端按钮隐藏）。
   - 新增旧库兼容补丁：启动时自动为 `project` 表补齐 `is_visible` 字段（若缺失）。
 
 - 结算增强
   - 新增结算项目维度信息：项目状态 + 项目总结。
   - 管理员可在结算详情页按项目填写并保存，支持回显与校验。
   - 项目状态选项改为 `StrEnum`。
+  - 管理端结算相关接口统一使用 Period 级依赖（按当前部门和周期鉴权）。
+  - 用户申报接口迁移到记录路由：`/claim/{period_id}`。
+  - 侧边栏“报酬申报”改为前端快捷入口（`/record?quick_claim=1`）。
 
 - 导出增强
   - 导出重构为 3 个工作表：`个人`、`项目`、`统计`。
@@ -54,7 +69,10 @@
   - Excel 文档元数据写入应用名（`creator` / `lastModifiedBy`）。
 
 - 配置与代码收敛
-  - 全局统一直接使用 `app.config.settings`，移除 `get_settings()` 单例调用路径。
+  - 应用结构重构：`config/database` 迁移到 `app/core`，业务工具迁移到 `app/utils`。
+  - 全局统一使用 `app.core.settings` 与 `SessionDep`。
+  - 新增 CLI 命令：`workload gen-secret`。
+  - 移除部门活跃窗口配置（`active_project_window_months`）及相关 CLI 命令。
 
 ## 技术栈
 
@@ -73,14 +91,16 @@ CommitMyLabor/
 ├── app/
 │   ├── main.py                # FastAPI 应用入口
 │   ├── cli.py                 # Typer 管理命令
-│   ├── config.py              # 配置管理
-│   ├── database.py            # 数据库连接与会话
+│   ├── core/                  # 核心配置与数据库
+│   │   ├── config.py
+│   │   └── database.py
 │   ├── models/                # 数据模型
 │   ├── routers/               # 路由层
-│   ├── services/              # 业务服务
+│   ├── utils/                 # 业务工具（导出/热力图/脚本）
 │   ├── templates/             # Jinja2 模板
 │   └── static/                # 静态资源
 ├── pyproject.toml
+├── .env.example
 └── README.md
 ```
 
@@ -131,8 +151,15 @@ CommitMyLabor/
     uv run workload list-dept
     ```
 
+- 生成随机 `secret_key`
+
+    ```shell
+    uv run workload gen-secret
+    ```
+
 ## 开发说明
 
 - 主应用入口：`app/main.py`
 - CLI 入口：`app/cli.py`
-- 根目录 `main.py` / `cli.py` / `seed_data.py` 为兼容入口，可继续使用。
+- 核心模块：`app/core/`
+- 工具模块：`app/utils/`

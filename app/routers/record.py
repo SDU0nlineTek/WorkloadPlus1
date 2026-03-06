@@ -5,11 +5,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlmodel import col, select
+from sqlmodel import col, func, select
 
-from app.config import settings
 from app.models import (
     Department,
     Project,
@@ -18,10 +16,9 @@ from app.models import (
     UserDeptLink,
     WorkRecord,
 )
-from app.routers.deps import UseridSession, UserSession
+from app.routers.deps import PeriodUserSession, UseridSession, UserSession, templates
 
 router = APIRouter(tags=["工作记录"])
-templates = Jinja2Templates(directory=settings.base_dir / "templates")
 
 
 class RecordItem(BaseModel):
@@ -42,55 +39,28 @@ class BatchRecordRequest(BaseModel):
 
 
 @router.get("/record", response_class=HTMLResponse)
-async def record_page(
-    s: UserSession,
-):
+async def record_page(s: UserSession):
     """填报主页面"""
-    request = s.request
-    user = s.user
-    session = s.db
-
-    user_dept_ids = [link.dept_id for link in user.dept_links]
-    current_dept_id = None
-    current_dept_name = ""
-    selected_raw = request.session.get("current_dept_id")
-    if selected_raw:
-        try:
-            selected_id = UUID(selected_raw)
-            current_link = next(
-                (link for link in user.dept_links if link.dept_id == selected_id), None
-            )
-            if current_link:
-                current_dept_id = current_link.dept_id
-                current_dept_name = current_link.department.name
-        except TypeError, ValueError:
-            pass
-
-    if not current_dept_id and user.dept_links:
-        current_dept_id = user.dept_links[0].dept_id
-        current_dept_name = user.dept_links[0].department.name
-
-    # 首页申报入口：当前用户所属部门的开放结算周期
+    dept_id = None
     claim_entries = []
-    if user_dept_ids:
-        open_periods = session.exec(
+    if dept_id := s.request.session.get("current_dept_id"):
+        dept_id = UUID(dept_id)
+        open_periods = s.db.exec(
             select(SettlementPeriod)
             .where(SettlementPeriod.is_open)
-            .where(col(SettlementPeriod.dept_id).in_(user_dept_ids))
+            .where(SettlementPeriod.dept_id == dept_id)
             .order_by(col(SettlementPeriod.id).desc())
         ).all()
-
         period_ids = [period.id for period in open_periods]
         claimed_period_ids = set()
         if period_ids:
             claimed_period_ids = set(
-                session.exec(
+                s.db.exec(
                     select(SettlementClaim.period_id)
-                    .where(SettlementClaim.user_id == user.id)
+                    .where(SettlementClaim.user_id == s.user.id)
                     .where(col(SettlementClaim.period_id).in_(period_ids))
                 ).all()
             )
-
         for period in open_periods:
             claim_entries.append(
                 {
@@ -98,16 +68,14 @@ async def record_page(
                     "claimed": period.id in claimed_period_ids,
                 }
             )
-
     # 获取今日记录
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_records = session.exec(
+    today_records = s.db.exec(
         select(WorkRecord)
-        .where(WorkRecord.user_id == user.id)
+        .where(WorkRecord.user_id == s.user.id)
         .where(WorkRecord.created_at >= today_start)
         .order_by(col(WorkRecord.created_at).desc())
     ).all()
-
     # 计算今日总时长
     today_minutes = sum(r.duration_minutes for r in today_records)
     today_hours = today_minutes // 60
@@ -116,10 +84,9 @@ async def record_page(
     return templates.TemplateResponse(
         "record.html",
         {
-            "request": request,
-            "user": user,
-            "current_dept_id": current_dept_id,
-            "current_dept_name": current_dept_name,
+            "request": s.request,
+            "user": s.user,
+            "current_dept_id": dept_id,
             "today_records": today_records,
             "today_hours": today_hours,
             "today_mins": today_mins,
@@ -128,46 +95,120 @@ async def record_page(
     )
 
 
-@router.get("/claim")
-async def claim_entry(
-    s: UserSession,
-):
-    """用户申报快捷入口：跳转到最近开放周期"""
-    user = s.user
-    session = s.db
-
-    period = session.exec(
-        select(SettlementPeriod)
-        .where(SettlementPeriod.is_open)
-        .where(col(SettlementPeriod.dept_id).in_([d.dept_id for d in user.dept_links]))
-        .order_by(col(SettlementPeriod.id).desc())
+@router.get("/claim/{period_id}", response_class=HTMLResponse)
+async def claim_page(s: PeriodUserSession):
+    """用户申报页面"""
+    if not s.period.is_open:
+        raise HTTPException(400, "该结算周期已关闭")
+    # 计算系统工时
+    system_minutes = (
+        s.db.exec(
+            select(func.sum(WorkRecord.duration_minutes))
+            .where(WorkRecord.user_id == s.user.id)
+            .where(WorkRecord.dept_id == s.period.dept_id)
+            .where(WorkRecord.created_at >= s.period.start_date)
+            .where(WorkRecord.created_at <= s.period.end_date)
+        ).first()
+        or 0
+    )
+    # 查找已有申报
+    existing_claim = s.db.exec(
+        select(SettlementClaim)
+        .where(SettlementClaim.period_id == s.period.id)
+        .where(SettlementClaim.user_id == s.user.id)
     ).first()
-    if not period:
-        return RedirectResponse(url="/record#settlement-claims", status_code=302)
-    return RedirectResponse(url=f"/admin/claim/{period.id}", status_code=302)
+
+    return templates.TemplateResponse(
+        "admin/claim_form.html",
+        {
+            "request": s.request,
+            "period": s.period,
+            "system_hours": system_minutes / 60,
+            "existing_claim": existing_claim,
+        },
+    )
+
+
+@router.post("/claim/{period_id}")
+async def submit_claim(
+    s: PeriodUserSession,
+    paid_hours: float = Form(...),
+    volunteer_hours: float = Form(...),
+):
+    """提交申报"""
+    if not s.period.is_open:
+        raise HTTPException(400, "该结算周期已关闭")
+
+    # 计算该周期系统总工时（小时）
+    system_minutes = (
+        s.db.exec(
+            select(func.sum(WorkRecord.duration_minutes))
+            .where(WorkRecord.user_id == s.user.id)
+            .where(WorkRecord.dept_id == s.period.dept_id)
+            .where(WorkRecord.created_at >= s.period.start_date)
+            .where(WorkRecord.created_at <= s.period.end_date)
+        ).first()
+        or 0
+    )
+    system_hours = round(system_minutes / 60, 2)
+
+    # 查找或更新申报
+    claim = s.db.exec(
+        select(SettlementClaim)
+        .where(SettlementClaim.period_id == s.period.id)
+        .where(SettlementClaim.user_id == s.user.id)
+    ).first()
+
+    total_hours = round(paid_hours + volunteer_hours, 2)
+    # 业务规则：工资时长 + 志愿时长 必须等于该周期系统总工时
+    if abs(total_hours - system_hours) > 1e-6:
+        return templates.TemplateResponse(
+            "admin/claim_form.html",
+            {
+                "request": s.request,
+                "period": s.period,
+                "system_hours": system_hours,
+                "existing_claim": claim,
+                "form_paid_hours": paid_hours,
+                "form_volunteer_hours": volunteer_hours,
+                "error_message": f"工资时长 + 志愿时长 必须等于本段总工时 {system_hours:.2f} 小时",
+            },
+            status_code=400,
+        )
+
+    if claim:
+        claim.paid_hours = paid_hours
+        claim.volunteer_hours = volunteer_hours
+        claim.total_hours = total_hours
+        claim.submitted_at = datetime.now()
+    else:
+        claim = SettlementClaim(
+            period_id=s.period.id,
+            user_id=s.user.id,
+            paid_hours=paid_hours,
+            volunteer_hours=volunteer_hours,
+            total_hours=total_hours,
+        )
+        s.db.add(claim)
+
+    s.db.commit()
+    return RedirectResponse(url="/timeline", status_code=302)
 
 
 @router.get("/projects/dropdown", response_class=HTMLResponse)
-async def get_project_dropdown(
-    s: UseridSession,
-    dept_id: UUID = Query(...),
-):
+async def get_project_dropdown(s: UseridSession, dept_id: UUID = Query(...)):
     """获取部门项目下拉选项（HTMX端点）"""
-    session = s.db
-
     # 验证部门
-    dept = session.get(Department, dept_id)
+    dept = s.db.get(Department, dept_id)
     if not dept:
         return HTMLResponse('<option value="">请选择项目</option>')
-
     # 查询管理员设为可见的项目
-    projects = session.exec(
+    projects = s.db.exec(
         select(Project)
         .where(Project.dept_id == dept_id)
         .where(Project.is_visible)
         .order_by(col(Project.last_active_at).desc())
     ).all()
-
     # 生成HTML选项
     options = ['<option value="">选择或输入新项目</option>']
     for p in projects:
@@ -187,155 +228,118 @@ async def create_record(
     related_content: str | None = Form(None),
 ):
     """创建单条记录"""
-    session = s.db
-    user_id = s.user.id
-
     # 验证部门
-    dept = session.get(Department, dept_id)
+    dept = s.db.get(Department, dept_id)
     if not dept:
         raise HTTPException(400, "部门不存在")
-
     if hours < 0 or minutes < 0:
         raise HTTPException(400, "时长不能为负数")
-
     # 计算总分钟数
     duration_minutes = hours * 60 + minutes
     if duration_minutes <= 0:
         raise HTTPException(400, "时长必须大于0")
-
     # 查找或创建项目
-    project = session.exec(
+    project = s.db.exec(
         select(Project)
         .where(Project.dept_id == dept_id)
         .where(Project.name == project_name)
     ).first()
-
     if not project:
         project = Project(dept_id=dept_id, name=project_name)
-        session.add(project)
-        session.commit()
-        session.refresh(project)
+        s.db.add(project)
+        s.db.commit()
+        s.db.refresh(project)
     else:
         # 更新活跃时间
         project.last_active_at = datetime.now()
-        session.add(project)
-
+        s.db.add(project)
     # 创建记录
     record = WorkRecord(
-        user_id=user_id,
+        user_id=s.user.id,
         dept_id=dept_id,
         project_id=project.id,
         description=description,
         duration_minutes=duration_minutes,
         related_content=related_content if related_content else None,
     )
-    session.add(record)
-
+    s.db.add(record)
     # 确保用户与部门关联
-    link = session.exec(
+    link = s.db.exec(
         select(UserDeptLink)
-        .where(UserDeptLink.user_id == user_id)
+        .where(UserDeptLink.user_id == s.user.id)
         .where(UserDeptLink.dept_id == dept_id)
     ).first()
     if not link:
-        link = UserDeptLink(user_id=user_id, dept_id=dept_id, is_admin=False)
-        session.add(link)
-
-    session.commit()
-
+        link = UserDeptLink(user_id=s.user.id, dept_id=dept_id, is_admin=False)
+        s.db.add(link)
+    s.db.commit()
     # 返回重定向
     return RedirectResponse(url="/record", status_code=302)
 
 
 @router.post("/record/batch")
-async def create_batch_records(
-    s: UserSession,
-    data: BatchRecordRequest,
-):
+async def create_batch_records(s: UserSession, data: BatchRecordRequest):
     """批量创建记录"""
-    session = s.db
-    user_id = s.user.id
-
     if not data.records:
         raise HTTPException(400, "至少需要一条记录")
-
     created_count = 0
-
     for item in data.records:
         # 验证部门
-        dept = session.get(Department, item.dept_id)
+        dept = s.db.get(Department, item.dept_id)
         if not dept:
             continue
-
         if item.hours < 0 or item.minutes < 0:
             continue
-
         # 计算总分钟数
         duration_minutes = item.hours * 60 + item.minutes
         if duration_minutes <= 0:
             continue
-
         # 查找或创建项目
-        project = session.exec(
+        project = s.db.exec(
             select(Project)
             .where(Project.dept_id == item.dept_id)
             .where(Project.name == item.project_name)
         ).first()
-
         if not project:
             project = Project(dept_id=item.dept_id, name=item.project_name)
-            session.add(project)
-            session.commit()
-            session.refresh(project)
+            s.db.add(project)
+            s.db.commit()
+            s.db.refresh(project)
         else:
             project.last_active_at = datetime.now()
-            session.add(project)
-
+            s.db.add(project)
         # 创建记录
         record = WorkRecord(
-            user_id=user_id,
+            user_id=s.user.id,
             dept_id=item.dept_id,
             project_id=project.id,
             description=item.description,
             duration_minutes=duration_minutes,
             related_content=item.related_content,
         )
-        session.add(record)
-
+        s.db.add(record)
         # 确保用户与部门关联
-        link = session.exec(
+        link = s.db.exec(
             select(UserDeptLink)
-            .where(UserDeptLink.user_id == user_id)
+            .where(UserDeptLink.user_id == s.user.id)
             .where(UserDeptLink.dept_id == item.dept_id)
         ).first()
         if not link:
-            link = UserDeptLink(user_id=user_id, dept_id=item.dept_id, is_admin=False)
-            session.add(link)
-
+            link = UserDeptLink(user_id=s.user.id, dept_id=item.dept_id, is_admin=False)
+            s.db.add(link)
         created_count += 1
-
-    session.commit()
-
+    s.db.commit()
     return {"message": f"成功创建 {created_count} 条记录", "count": created_count}
 
 
 @router.delete("/record/{record_id}")
-async def delete_record(
-    s: UserSession,
-    record_id: UUID,
-):
+async def delete_record(s: UserSession, record_id: UUID):
     """删除记录"""
-    session = s.db
-    user_id = s.user.id
-
-    record = session.get(WorkRecord, record_id)
+    record = s.db.get(WorkRecord, record_id)
     if not record:
         raise HTTPException(404, "记录不存在")
-
-    if record.user_id != user_id:
+    if record.user_id != s.user.id:
         raise HTTPException(403, "无权删除他人记录")
-
-    session.delete(record)
-    session.commit()
-
+    s.db.delete(record)
+    s.db.commit()
     return {"message": "删除成功"}

@@ -7,7 +7,7 @@ from fastapi import Depends
 from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.config import settings
+from app.core import settings
 
 # SQLite 需要 connect_args={"check_same_thread": False}
 connect_args = {"check_same_thread": False} if "sqlite" in settings.database_url else {}

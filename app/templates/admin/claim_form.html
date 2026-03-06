@@ -25,7 +25,7 @@
         </div>
         {% endif %}
 
-        <form id="claim-form" action="/admin/claim/{{ period.id }}" method="POST" class="space-y-4">
+        <form id="claim-form" action="/claim/{{ period.id }}" method="POST" class="space-y-4">
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">工资时长 (小时)</label>
                 <input id="paid-hours" type="number" name="paid_hours" step="0.25" min="0" required

@@ -5,7 +5,7 @@ from rich import print as rprint
 from rich.table import Table
 from sqlmodel import Session, select
 
-from app.database import create_db_and_tables, engine
+from app.core import create_db_and_tables, engine
 from app.models import Department, User, UserDeptLink
 
 app = typer.Typer(help="工作量+1 管理工具")
@@ -52,12 +52,9 @@ def list_dept():
         table = Table(title="部门列表")
         table.add_column("ID", style="cyan")
         table.add_column("名称", style="green")
-        table.add_column("活跃周期(月)", style="yellow")
 
         for dept in depts:
-            table.add_row(
-                str(dept.id), dept.name, str(dept.active_project_window_months)
-            )
+            table.add_row(str(dept.id), dept.name)
 
         rprint(table)
 
@@ -120,28 +117,21 @@ def list_users():
         rprint(table)
 
 
-@app.command()
-def set_window(dept_name: str, months: int = 3):
-    """设置部门的活跃项目判定周期"""
-    with Session(engine) as session:
-        dept = session.exec(
-            select(Department).where(Department.name == dept_name)
-        ).first()
-        if not dept:
-            rprint(f"[red]未找到部门 '{dept_name}'[/red]")
-            return
-
-        dept.active_project_window_months = months
-        session.commit()
-        rprint(f"[green]部门 '{dept_name}' 活跃周期已设为 {months} 个月[/green]")
-
-
 @app.command("seed-data")
 def seed_data_cmd():
     """生成测试数据"""
-    from app.seed_data import main as seed_data_main
+    from app.utils.seed_data import main as seed_data_main
 
     seed_data_main()
+
+
+@app.command("gen-secret")
+def gen_secret():
+    """生成随机 secret_key"""
+    import secrets
+
+    key = secrets.token_urlsafe(32)
+    rprint(f"[green]{key}[/green]")
 
 
 if __name__ == "__main__":

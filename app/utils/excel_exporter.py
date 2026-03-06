@@ -9,7 +9,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlmodel import Session, col, select
 
-from app.config import settings
+from app.core import settings
 from app.models import (
     Project,
     SettlementClaim,

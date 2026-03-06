@@ -39,7 +39,7 @@
                 <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">用户端</p>
                 <a href="/record" class="app-nav-link block px-3 py-2 rounded-lg {% if current_path == '/record' %}app-nav-link-active-user bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">填报</a>
                 <a href="/timeline" class="app-nav-link block px-3 py-2 rounded-lg {% if current_path.startswith('/timeline') %}app-nav-link-active-user bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">时间线</a>
-                <a href="/claim" class="app-nav-link block px-3 py-2 rounded-lg {% if current_path.startswith('/claim') or current_path.startswith('/admin/claim') %}app-nav-link-active-user bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">报酬申报</a>
+                <a href="/record?quick_claim=1#settlement-claims" class="app-nav-link block px-3 py-2 rounded-lg {% if current_path.startswith('/claim') or current_path.startswith('/admin/claim') %}app-nav-link-active-user bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">报酬申报</a>
 
                 {% if request.session.get('current_dept_is_admin') %}
                 <div class="pt-3 mt-3 border-t border-gray-100"></div>

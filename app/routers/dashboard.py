@@ -6,18 +6,15 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlmodel import col, select
 
-from app.config import settings
 from app.models import (
     WorkRecord,
 )
-from app.routers.deps import UseridSessionOptional, UserSession
-from app.services.activity_heatmap import build_activity_heatmap
+from app.routers.deps import UseridSession, UserSession, templates
+from app.utils.activity_heatmap import build_activity_heatmap
 
 router = APIRouter(tags=["时间线"])
-templates = Jinja2Templates(directory=settings.base_dir / "templates")
 
 
 @router.get("/timeline", response_class=HTMLResponse)
@@ -28,16 +25,11 @@ async def timeline_page(
     day: Optional[str] = Query(None),  # 格式: 2024-01-31
 ):
     """个人时间线页面"""
-    request = s.request
-    session = s.db
-    user = s.user
-    user_id = user.id
-
     # 解析当前部门（来自侧边栏选择），并兼容旧参数。
-    user_dept_ids = {link.dept_id for link in user.dept_links}
+    user_dept_ids = {link.dept_id for link in s.user.dept_links}
     selected_dept_id = dept_id
     if not selected_dept_id:
-        selected_raw = request.session.get("current_dept_id")
+        selected_raw = s.request.session.get("current_dept_id")
         if selected_raw:
             try:
                 selected_dept_id = UUID(selected_raw)
@@ -48,7 +40,7 @@ async def timeline_page(
         selected_dept_id = None
 
     # 构建查询
-    query = select(WorkRecord).where(WorkRecord.user_id == user_id)
+    query = select(WorkRecord).where(WorkRecord.user_id == s.user.id)
 
     # 按月份筛选
     if month:
@@ -82,8 +74,8 @@ async def timeline_page(
             pass
 
     # 获取记录
-    records = session.exec(query.order_by(col(WorkRecord.created_at).desc())).all()
-    heatmap_records = session.exec(
+    records = s.db.exec(query.order_by(col(WorkRecord.created_at).desc())).all()
+    heatmap_records = s.db.exec(
         heatmap_query.order_by(col(WorkRecord.created_at).desc())
     ).all()
 
@@ -126,8 +118,8 @@ async def timeline_page(
     return templates.TemplateResponse(
         "timeline.html",
         {
-            "request": request,
-            "user": user,
+            "request": s.request,
+            "user": s.user,
             "grouped_records": grouped_records,
             "months": months,
             "current_month": month,
@@ -141,20 +133,14 @@ async def timeline_page(
 
 
 @router.get("/timeline/filter", response_class=HTMLResponse)
-async def timeline_filter(
-    s: UseridSessionOptional,
-    month: Optional[str] = Query(None),
-    dept_id: Optional[UUID] = Query(None),
-):
+async def timeline_filter(s: UseridSession, month: Optional[str] = Query(None)):
     """HTMX 筛选端点"""
-    session = s.db
-    user_id = s.user_id
-    if not user_id:
-        return HTMLResponse('<p class="text-red-500">请先登录</p>')
-
     # 构建查询
-    query = select(WorkRecord).where(WorkRecord.user_id == user_id)
-
+    query = (
+        select(WorkRecord)
+        .where(WorkRecord.user_id == s.user_id)
+        .where(WorkRecord.dept_id == UUID(s.request.session.get("current_dept_id")))
+    )
     if month:
         try:
             year, mon = map(int, month.split("-"))
@@ -167,12 +153,7 @@ async def timeline_filter(
             query = query.where(WorkRecord.created_at < end_date)
         except Exception:
             pass
-
-    if dept_id:
-        query = query.where(WorkRecord.dept_id == dept_id)
-
-    records = session.exec(query.order_by(col(WorkRecord.created_at).desc())).all()
-
+    records = s.db.exec(query.order_by(col(WorkRecord.created_at).desc())).all()
     # 按日期分组
     grouped_records = {}
     for record in records:
@@ -188,10 +169,8 @@ async def timeline_filter(
             }
         grouped_records[date_key]["records"].append(record)
         grouped_records[date_key]["total_minutes"] += record.duration_minutes
-
     # 返回记录列表HTML片段
     html_parts = []
-
     if not grouped_records:
         html_parts.append('<p class="text-gray-400 text-center py-12">暂无记录</p>')
     else:
@@ -205,7 +184,6 @@ async def timeline_filter(
                 </div>
                 <div class="ml-6 border-l-2 border-gray-200 pl-4 space-y-3">
             """)
-
             for record in group["records"]:
                 html_parts.append(f"""
                     <div class="p-3 bg-white rounded-lg shadow-sm">
@@ -219,7 +197,5 @@ async def timeline_filter(
                         </div>
                     </div>
                 """)
-
             html_parts.append("</div></div>")
-
     return HTMLResponse("\n".join(html_parts))

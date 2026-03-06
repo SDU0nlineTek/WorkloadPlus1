@@ -7,20 +7,18 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid7
 
 import httpx
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
 from httpx import Client, HTTPError
-from sqlmodel import Session, select
+from sqlmodel import select
 
-from app.config import settings
-from app.database import get_session
+from app.core import SessionDep, settings
 from app.models import User, UserDeptLink
-from app.routers.deps import UserSession
-from app.uniform_login_des import strEnc
+from app.routers.deps import UserSession, templates
+from app.utils.uniform_login_des import strEnc
 
 router = APIRouter(tags=["认证"])
-templates = Jinja2Templates(directory=settings.base_dir / "templates")
+
 
 # 临时存储登录会话
 login_sessions: dict[str, httpx.Cookies] = {}
@@ -46,9 +44,7 @@ def clear_expired_sessions():
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(
-    request: Request,
-    session: Session = Depends(get_session),
-    redirect: Optional[str] = Query(None),
+    request: Request, session: SessionDep, redirect: Optional[str] = Query(None)
 ):
     """登录页面"""
     redirect_target = _safe_redirect_target(redirect)
@@ -82,7 +78,7 @@ async def login_page(
 
 
 @router.post("/auth/code")
-async def get_image_code(request: Request):
+async def get_image_code():
     """获取图形验证码"""
     clear_expired_sessions()
     try:
@@ -131,7 +127,7 @@ async def send_sms_code(
 @router.post("/auth/login")
 async def do_login(
     request: Request,
-    session: Session = Depends(get_session),
+    session: SessionDep,
     mobile: str = Form(..., min_length=11, max_length=11, pattern=r"^\d+$"),
     sms_code: str = Form(..., min_length=6, max_length=6, pattern=r"^\d+$"),
     redirect: Optional[str] = Form(None),
@@ -222,29 +218,25 @@ async def switch_department(
     return RedirectResponse(url=target, status_code=302)
 
 
-@router.get("/profile", response_class=HTMLResponse)
-async def profile_page(s: UserSession):
-    """个人资料页面已移除，保留重定向兼容。"""
-    return RedirectResponse(url="/record", status_code=302)
+if settings.debug:
 
+    @router.post("/auth/debug-login/{user_id}")
+    async def debug_login(
+        request: Request,
+        user_id: UUID,
+        session: SessionDep,
+    ):
+        """Debug 模式快速登录（仅开发环境可用）"""
+        if not settings.debug:
+            raise HTTPException(403, "此功能仅在 debug 模式下可用")
 
-@router.post("/auth/debug-login/{user_id}")
-async def debug_login(
-    request: Request,
-    user_id: UUID,
-    session: Session = Depends(get_session),
-):
-    """Debug 模式快速登录（仅开发环境可用）"""
-    if not settings.debug:
-        raise HTTPException(403, "此功能仅在 debug 模式下可用")
+        user = session.get(User, user_id)
+        if not user:
+            raise HTTPException(404, "用户不存在")
 
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(404, "用户不存在")
+        # 设置 session
+        request.session["user_id"] = str(user.id)
+        request.session["user_name"] = user.name
+        request.session["is_admin"] = user.admin_dept_list() != []
 
-    # 设置 session
-    request.session["user_id"] = str(user.id)
-    request.session["user_name"] = user.name
-    request.session["is_admin"] = user.admin_dept_list() != []
-
-    return {"message": "登录成功", "user": user.name}
+        return {"message": "登录成功", "user": user.name}
