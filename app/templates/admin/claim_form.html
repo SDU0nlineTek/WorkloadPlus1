@@ -44,19 +44,30 @@
                         <div class="divide-y divide-gray-100">
                             {% for record in group.records %}
                             {% set in_period = record.created_at >= period.start_date and record.created_at <= period.end_date %}
-                            <label class="px-3 py-2 grid grid-cols-[22px_130px_1fr_80px] gap-2 items-center text-xs hover:bg-blue-50/40 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    name="selected_record_ids"
-                                    value="{{ record.id }}"
-                                    data-minutes="{{ record.duration_minutes }}"
-                                    data-project="{{ project_idx }}"
-                                    class="record-checkbox h-4 w-4 text-blue-600 border-gray-300 rounded"
-                                    {% if in_period and record.id in selected_record_ids %}checked{% endif %}
-                                >
-                                <span class="text-gray-500">{{ record.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
-                                <span class="text-gray-700 truncate whitespace-nowrap">{{ record.description }}</span>
-                                <span class="text-right text-gray-700 whitespace-nowrap">{{ "%.2f"|format(record.duration_minutes / 60) }}h</span>
+                            <label class="px-2 sm:px-3 py-1.5 sm:py-2 hover:bg-blue-50/40 cursor-pointer block">
+                                <div class="grid grid-cols-[20px_92px_1fr_58px] sm:grid-cols-[22px_130px_1fr_80px] gap-1 sm:gap-2 items-center text-[11px] sm:text-xs">
+                                    <input
+                                        type="checkbox"
+                                        name="selected_record_ids"
+                                        value="{{ record.id }}"
+                                        data-minutes="{{ record.duration_minutes }}"
+                                        data-project="{{ project_idx }}"
+                                        class="record-checkbox h-4 w-4 text-blue-600 border-gray-300 rounded"
+                                        {% if in_period and record.id in selected_record_ids %}checked{% endif %}
+                                    >
+                                    <span class="text-gray-500 truncate">{{ record.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                    <span class="text-gray-700 truncate whitespace-nowrap" title="{{ record.description }}">{{ record.description }}</span>
+                                    <div class="text-right text-gray-700 whitespace-nowrap">
+                                        <span>{{ "%.2f"|format(record.duration_minutes / 60) }}h</span>
+                                        <button
+                                            type="button"
+                                            class="desc-toggle ml-1 text-[10px] text-blue-600 hover:underline sm:hidden"
+                                            data-target="desc-{{ record.id }}"
+                                            aria-expanded="false"
+                                        >详情</button>
+                                    </div>
+                                </div>
+                                <p id="desc-{{ record.id }}" class="hidden sm:hidden mt-1 pl-6 text-xs text-gray-600 break-words whitespace-pre-wrap">{{ record.description }}</p>
                             </label>
                             {% endfor %}
                         </div>
@@ -124,6 +135,7 @@
     const form = document.getElementById('claim-form');
     const checkboxes = Array.from(document.querySelectorAll('.record-checkbox'));
     const projectToggleBtns = Array.from(document.querySelectorAll('.project-toggle'));
+    const descToggleBtns = Array.from(document.querySelectorAll('.desc-toggle'));
     const targetDurationEl = document.getElementById('selected-target-duration');
     const toggleAllBtn = document.getElementById('toggle-all');
     let syncingInputs = false;
@@ -264,6 +276,25 @@
             refreshToggleLabels();
             syncOtherInput('paid');
             calcTotal();
+        });
+    });
+
+    descToggleBtns.forEach((btn) => {
+        btn.addEventListener('click', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const targetId = btn.dataset.target;
+            if (!targetId) {
+                return;
+            }
+            const detail = document.getElementById(targetId);
+            if (!detail) {
+                return;
+            }
+            const expanded = btn.getAttribute('aria-expanded') === 'true';
+            btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            btn.textContent = expanded ? '详情' : '收起';
+            detail.classList.toggle('hidden', expanded);
         });
     });
 
