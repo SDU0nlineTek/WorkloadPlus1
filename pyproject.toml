@@ -21,3 +21,6 @@ workload = "app.cli:app"
 
 [tool.uv]
 package = true
+
+[tool.setuptools]
+packages = ["app"]

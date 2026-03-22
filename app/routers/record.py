@@ -1,12 +1,12 @@
 """工作记录路由"""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
-from sqlmodel import col, func, select
+from sqlmodel import col, select
 
 from app.models import (
     Department,
@@ -36,6 +36,79 @@ class BatchRecordRequest(BaseModel):
     """批量记录请求"""
 
     records: list[RecordItem]
+
+
+def _load_unclaimed_period_records(s: PeriodUserSession) -> list[WorkRecord]:
+    """加载当前用户在结算周期内尚未申报的记录"""
+    return list(s.db.exec(
+        select(WorkRecord)
+        .join(Project, col(WorkRecord.project_id) == Project.id)
+        .where(WorkRecord.user_id == s.user.id)
+        .where(WorkRecord.dept_id == s.period.dept_id)
+        # .where(WorkRecord.created_at >= s.period.start_date)
+        # .where(WorkRecord.created_at <= s.period.end_date)
+        .where(col(WorkRecord.claimed).is_(False))
+        .order_by(col(Project.name), col(WorkRecord.created_at).desc())
+    ).all())
+
+
+def _group_records_by_project(records: list[WorkRecord]) -> list[dict]:
+    """按项目分组记录，便于模板展示"""
+    groups: dict[str, dict] = {}
+    for record in records:
+        project_name = record.project.name
+        if project_name not in groups:
+            groups[project_name] = {
+                "project_name": project_name,
+                "total_minutes": 0,
+                "records": [],
+            }
+        groups[project_name]["records"].append(record)
+        groups[project_name]["total_minutes"] += record.duration_minutes
+    return list(groups.values())
+
+
+def _render_claim_form(
+    s: PeriodUserSession,
+    *,
+    existing_claim: SettlementClaim | None,
+    form_paid_hours: int | None = None,
+    form_paid_minutes: int | None = None,
+    form_volunteer_hours: int | None = None,
+    error_message: str | None = None,
+    selected_record_ids: set[UUID] | None = None,
+    status_code: int = 200,
+):
+    """统一构建申报页面上下文"""
+    unclaimed_records = _load_unclaimed_period_records(s)
+    project_groups = _group_records_by_project(unclaimed_records)
+
+    if selected_record_ids is None:
+        selected_record_ids = {record.id for record in unclaimed_records}
+
+    selected_total_minutes = sum(
+        record.duration_minutes
+        for record in unclaimed_records
+        if record.id in selected_record_ids
+    )
+
+    return templates.TemplateResponse(
+        "admin/claim_form.html",
+        {
+            "request": s.request,
+            "period": s.period,
+            "system_minutes": selected_total_minutes,
+            "system_hours": selected_total_minutes / 60,
+            "existing_claim": existing_claim,
+            "form_paid_hours": form_paid_hours,
+            "form_paid_minutes": form_paid_minutes,
+            "form_volunteer_hours": form_volunteer_hours,
+            "error_message": error_message,
+            "project_groups": project_groups,
+            "selected_record_ids": selected_record_ids,
+        },
+        status_code=status_code,
+    )
 
 
 @router.get("/record", response_class=HTMLResponse)
@@ -68,18 +141,18 @@ async def record_page(s: UserSession):
                     "claimed": period.id in claimed_period_ids,
                 }
             )
-    # 获取今日记录
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_records = s.db.exec(
+    # 获取最近记录
+    recent_start = datetime.now()-timedelta(days=1)
+    recent_records = s.db.exec(
         select(WorkRecord)
         .where(WorkRecord.user_id == s.user.id)
-        .where(WorkRecord.created_at >= today_start)
+        .where(WorkRecord.created_at >= recent_start)
         .order_by(col(WorkRecord.created_at).desc())
     ).all()
-    # 计算今日总时长
-    today_minutes = sum(r.duration_minutes for r in today_records)
-    today_hours = today_minutes // 60
-    today_mins = today_minutes % 60
+    # 计算最近总时长
+    recent_minutes = sum(r.duration_minutes for r in recent_records)
+    recent_hours = recent_minutes // 60
+    recent_mins = recent_minutes % 60
 
     return templates.TemplateResponse(
         "record.html",
@@ -87,9 +160,9 @@ async def record_page(s: UserSession):
             "request": s.request,
             "user": s.user,
             "current_dept_id": dept_id,
-            "today_records": today_records,
-            "today_hours": today_hours,
-            "today_mins": today_mins,
+            "recent_records": recent_records,
+            "recent_hours": recent_hours,
+            "recent_mins": recent_mins,
             "claim_entries": claim_entries,
         },
     )
@@ -100,57 +173,84 @@ async def claim_page(s: PeriodUserSession):
     """用户申报页面"""
     if not s.period.is_open:
         raise HTTPException(400, "该结算周期已关闭")
-    # 计算系统工时
-    system_minutes = (
-        s.db.exec(
-            select(func.sum(WorkRecord.duration_minutes))
-            .where(WorkRecord.user_id == s.user.id)
-            .where(WorkRecord.dept_id == s.period.dept_id)
-            .where(WorkRecord.created_at >= s.period.start_date)
-            .where(WorkRecord.created_at <= s.period.end_date)
-        ).first()
-        or 0
-    )
     # 查找已有申报
     existing_claim = s.db.exec(
         select(SettlementClaim)
         .where(SettlementClaim.period_id == s.period.id)
         .where(SettlementClaim.user_id == s.user.id)
     ).first()
-
-    return templates.TemplateResponse(
-        "admin/claim_form.html",
-        {
-            "request": s.request,
-            "period": s.period,
-            "system_hours": system_minutes / 60,
-            "existing_claim": existing_claim,
-        },
-    )
+    return _render_claim_form(s, existing_claim=existing_claim)
 
 
 @router.post("/claim/{period_id}")
 async def submit_claim(
     s: PeriodUserSession,
-    paid_hours: float = Form(...),
-    volunteer_hours: float = Form(...),
+    paid_hours: int = Form(...),
+    paid_minutes: int = Form(...),
+    volunteer_hours: int = Form(...),
+    selected_record_ids: list[str] = Form(default=[]),
 ):
     """提交申报"""
     if not s.period.is_open:
         raise HTTPException(400, "该结算周期已关闭")
 
-    # 计算该周期系统总工时（小时）
-    system_minutes = (
-        s.db.exec(
-            select(func.sum(WorkRecord.duration_minutes))
-            .where(WorkRecord.user_id == s.user.id)
-            .where(WorkRecord.dept_id == s.period.dept_id)
-            .where(WorkRecord.created_at >= s.period.start_date)
-            .where(WorkRecord.created_at <= s.period.end_date)
+    if paid_hours < 0 or paid_minutes < 0 or volunteer_hours < 0:
+        raise HTTPException(400, "申报时长不能为负数")
+    if paid_minutes >= 60:
+        raise HTTPException(400, "工资时长分钟必须在0到59之间")
+
+    parsed_record_ids: set[UUID] = set()
+    for record_id in selected_record_ids:
+        try:
+            parsed_record_ids.add(UUID(record_id))
+        except ValueError:
+            raise HTTPException(400, "存在无效的记录ID")
+
+    if not parsed_record_ids:
+        claim = s.db.exec(
+            select(SettlementClaim)
+            .where(SettlementClaim.period_id == s.period.id)
+            .where(SettlementClaim.user_id == s.user.id)
         ).first()
-        or 0
-    )
-    system_hours = round(system_minutes / 60, 2)
+        return _render_claim_form(
+            s,
+            existing_claim=claim,
+            form_paid_hours=paid_hours,
+            form_paid_minutes=paid_minutes,
+            form_volunteer_hours=volunteer_hours,
+            error_message="请至少选择一条工作记录进行申报",
+            selected_record_ids=parsed_record_ids,
+            status_code=400,
+        )
+
+    selected_records = s.db.exec(
+        select(WorkRecord)
+        .where(col(WorkRecord.id).in_(parsed_record_ids))
+        .where(WorkRecord.user_id == s.user.id)
+        .where(WorkRecord.dept_id == s.period.dept_id)
+        # .where(WorkRecord.created_at >= s.period.start_date)
+        # .where(WorkRecord.created_at <= s.period.end_date)
+        .where(col(WorkRecord.claimed).is_(False))
+    ).all()
+
+    if len(selected_records) != len(parsed_record_ids):
+        claim = s.db.exec(
+            select(SettlementClaim)
+            .where(SettlementClaim.period_id == s.period.id)
+            .where(SettlementClaim.user_id == s.user.id)
+        ).first()
+        return _render_claim_form(
+            s,
+            existing_claim=claim,
+            form_paid_hours=paid_hours,
+            form_paid_minutes=paid_minutes,
+            form_volunteer_hours=volunteer_hours,
+            error_message="所选记录中包含不可申报项，请刷新后重试",
+            selected_record_ids=parsed_record_ids,
+            status_code=400,
+        )
+
+    system_minutes = sum(record.duration_minutes for record in selected_records)
 
     # 查找或更新申报
     claim = s.db.exec(
@@ -159,37 +259,43 @@ async def submit_claim(
         .where(SettlementClaim.user_id == s.user.id)
     ).first()
 
-    total_hours = round(paid_hours + volunteer_hours, 2)
+    paid_total_minutes = paid_hours * 60 + paid_minutes
+    volunteer_total_minutes = volunteer_hours * 60
+    total_minutes = paid_total_minutes + volunteer_total_minutes
+
+    total_hours = round(total_minutes / 60, 2)
+    expected_hours = round(system_minutes / 60, 2)
     # 业务规则：工资时长 + 志愿时长 必须等于该周期系统总工时
-    if abs(total_hours - system_hours) > 1e-6:
-        return templates.TemplateResponse(
-            "admin/claim_form.html",
-            {
-                "request": s.request,
-                "period": s.period,
-                "system_hours": system_hours,
-                "existing_claim": claim,
-                "form_paid_hours": paid_hours,
-                "form_volunteer_hours": volunteer_hours,
-                "error_message": f"工资时长 + 志愿时长 必须等于本段总工时 {system_hours:.2f} 小时",
-            },
+    if total_minutes != system_minutes:
+        return _render_claim_form(
+            s,
+            existing_claim=claim,
+            form_paid_hours=paid_hours,
+            form_paid_minutes=paid_minutes,
+            form_volunteer_hours=volunteer_hours,
+            error_message=f"工资时长 + 志愿时长 必须等于已选工时 {expected_hours:.2f} 小时",
+            selected_record_ids=parsed_record_ids,
             status_code=400,
         )
 
     if claim:
-        claim.paid_hours = paid_hours
-        claim.volunteer_hours = volunteer_hours
-        claim.total_hours = total_hours
+        claim.paid_minutes = paid_total_minutes
+        claim.volunteer_minutes = volunteer_total_minutes
+        claim.total_minutes = total_minutes
         claim.submitted_at = datetime.now()
     else:
         claim = SettlementClaim(
             period_id=s.period.id,
             user_id=s.user.id,
-            paid_hours=paid_hours,
-            volunteer_hours=volunteer_hours,
-            total_hours=total_hours,
+            paid_minutes=paid_total_minutes,
+            volunteer_minutes=volunteer_total_minutes,
+            total_minutes=total_minutes,
         )
         s.db.add(claim)
+
+    for record in selected_records:
+        record.claimed = True
+        s.db.add(record)
 
     s.db.commit()
     return RedirectResponse(url="/timeline", status_code=302)

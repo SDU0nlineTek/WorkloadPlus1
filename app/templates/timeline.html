@@ -106,21 +106,27 @@
                 <div class="ml-6 border-l-2 border-gray-200 pl-4 space-y-3">
                     {% for record in group.records %}
                     <div class="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <p class="font-medium text-gray-800">{{ record.project.name }}</p>
-                                <p class="text-sm text-gray-600 mt-1">{{ record.description }}</p>
-                                <p class="text-xs text-gray-400 mt-1">{{ record.department.name }}</p>
-                                {% if record.related_content %}
-                                <a href="{{ record.related_content }}" target="_blank" 
-                                   class="text-xs text-blue-500 hover:underline mt-1 block">
-                                    相关内容
-                                </a>
-                                {% endif %}
-                            </div>
-                            <span class="text-blue-600 font-medium">
+                        <div class="flex justify-between items-center gap-3">
+                            <p class="font-medium text-gray-800">{{ record.project.name }}</p>
+                            <span class="text-blue-600 font-medium whitespace-nowrap">
                                 {{ '%.1f'|format(record.duration_minutes / 60) }} 小时
                             </span>
+                        </div>
+                        <p class="text-sm text-gray-600 mt-1">{{ record.description }}</p>
+                        <div class="mt-1 flex items-center text-xs">
+                            <span class="text-gray-400">{{ record.department.name }}</span>
+                            {% if record.related_content %}
+                            {% set related_content = record.related_content|string %}
+                            {% set related_content_lower = related_content|lower %}
+                            {% if related_content_lower.startswith('http://') or related_content_lower.startswith('https://') %}
+                            <a href="{{ related_content }}" target="_blank" 
+                               class="ml-auto text-blue-500 hover:underline">
+                                相关内容
+                            </a>
+                            {% else %}
+                            <span class="ml-auto text-gray-500">{{ related_content }}</span>
+                            {% endif %}
+                            {% endif %}
                         </div>
                     </div>
                     {% endfor %}

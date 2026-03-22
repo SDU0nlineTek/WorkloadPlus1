@@ -134,6 +134,7 @@ class WorkRecord(Table, table=True):
     duration_minutes: int
     related_content: str | None = Field(default=None, max_length=500)
     created_at: datetime = Field(default_factory=datetime.now, index=True)
+    claimed: bool = Field(default=False)
 
     user: "User" = Relationship(back_populates="work_records")
     department: "Department" = Relationship(back_populates="work_records")
@@ -167,13 +168,40 @@ class SettlementClaim(Table, table=True):
     period_id: UUID = Field(foreign_key="settlement_period.id", index=True)
     user_id: UUID = Field(foreign_key="user.id", index=True)
 
-    paid_hours: float
-    volunteer_hours: float
-    total_hours: float
+    paid_minutes: int = Field(default=0)
+    volunteer_minutes: int = Field(default=0)
+    total_minutes: int = Field(default=0)
     submitted_at: datetime = Field(default_factory=datetime.now)
 
     period: "SettlementPeriod" = Relationship(back_populates="claims")
     user: "User" = Relationship(back_populates="settlement_claims")
+
+    @property
+    def paid_hours(self) -> float:
+        """兼容旧代码：按小时读取工资时长"""
+        return self.paid_minutes / 60
+
+    @paid_hours.setter
+    def paid_hours(self, value: float):
+        self.paid_minutes = max(int(round(value * 60)), 0)
+
+    @property
+    def volunteer_hours(self) -> float:
+        """兼容旧代码：按小时读取志愿时长"""
+        return self.volunteer_minutes / 60
+
+    @volunteer_hours.setter
+    def volunteer_hours(self, value: float):
+        self.volunteer_minutes = max(int(round(value * 60)), 0)
+
+    @property
+    def total_hours(self) -> float:
+        """兼容旧代码：按小时读取申报总时长"""
+        return self.total_minutes / 60
+
+    @total_hours.setter
+    def total_hours(self, value: float):
+        self.total_minutes = max(int(round(value * 60)), 0)
 
 
 class SettlementProjectSummary(Table, table=True):

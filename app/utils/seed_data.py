@@ -231,14 +231,12 @@ def create_test_data():
                     or 0
                 )
 
-                system_hours = system_minutes / 60
-
                 claim = SettlementClaim(
                     period_id=period.id,
                     user_id=member.user_id,
-                    paid_hours=round(system_hours * 0.8, 1),  # 80%作为工资
-                    volunteer_hours=round(system_hours * 0.2, 1),  # 20%作为志愿
-                    total_hours=round(system_hours, 1),
+                    paid_minutes=int(round(system_minutes * 0.8)),  # 80%作为工资
+                    volunteer_minutes=int(round(system_minutes * 0.2)),  # 20%作为志愿
+                    total_minutes=system_minutes,
                 )
                 session.add(claim)
                 claims_count += 1

@@ -200,6 +200,18 @@
                         <p class="text-sm text-blue-600 font-medium whitespace-nowrap">{{ '%.1f'|format(r.duration_minutes / 60) }} 小时</p>
                     </div>
                     <p class="mt-2 text-sm text-gray-600 break-words whitespace-pre-wrap">{{ r.description }}</p>
+                    {% if r.related_content %}
+                    {% set related_content = r.related_content|string %}
+                    {% set related_content_lower = related_content|lower %}
+                    <p class="mt-1 text-xs text-gray-500 break-words">
+                        相关内容：
+                        {% if related_content_lower.startswith('http://') or related_content_lower.startswith('https://') %}
+                        <a href="{{ related_content }}" target="_blank" class="text-blue-500 hover:underline">相关链接</a>
+                        {% else %}
+                        {{ related_content }}
+                        {% endif %}
+                    </p>
+                    {% endif %}
                 </div>
                 {% else %}
                 <div class="px-4 py-8 text-center text-gray-400">暂无记录</div>
@@ -214,6 +226,7 @@
                             <th class="px-4 py-2 text-left text-gray-600">成员</th>
                             <th class="px-4 py-2 text-left text-gray-600">项目</th>
                             <th class="px-4 py-2 text-left text-gray-600">描述</th>
+                            <th class="px-4 py-2 text-left text-gray-600">相关内容</th>
                             <th class="px-4 py-2 text-right text-gray-600">时长</th>
                         </tr>
                     </thead>
@@ -224,10 +237,23 @@
                             <td class="px-4 py-3">{{ r.user.name }}</td>
                             <td class="px-4 py-3">{{ r.project.name }}</td>
                             <td class="px-4 py-3 text-gray-600 max-w-lg break-words whitespace-pre-wrap">{{ r.description }}</td>
+                            <td class="px-4 py-3 text-gray-600 max-w-sm break-words">
+                                {% if r.related_content %}
+                                {% set related_content = r.related_content|string %}
+                                {% set related_content_lower = related_content|lower %}
+                                {% if related_content_lower.startswith('http://') or related_content_lower.startswith('https://') %}
+                                <a href="{{ related_content }}" target="_blank" class="text-blue-500 hover:underline">相关链接</a>
+                                {% else %}
+                                {{ related_content }}
+                                {% endif %}
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
                             <td class="px-4 py-3 text-right text-blue-600 font-medium">{{ '%.1f'|format(r.duration_minutes / 60) }} 小时</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无记录</td></tr>
+                        <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">暂无记录</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>

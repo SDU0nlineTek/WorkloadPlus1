@@ -3,52 +3,98 @@
 {% block title %}报酬申报 - 工作量+1{% endblock %}
 
 {% block content %}
-<div class="max-w-lg mx-auto">
+<div class="max-w-5xl mx-auto">
     <div class="bg-white rounded-xl shadow-sm p-6">
         <h2 class="text-xl font-bold text-gray-800 mb-2">{{ period.title }}</h2>
         <p class="text-sm text-gray-500 mb-6">
             {{ period.start_date.strftime('%Y-%m-%d') }} ~ {{ period.end_date.strftime('%Y-%m-%d') }}
         </p>
 
-        <div class="bg-blue-50 rounded-lg p-4 mb-6">
-            <p class="text-sm text-blue-800">
-                系统记录工时: <span class="font-bold">{{ "%.1f"|format(system_hours) }} 小时</span>
-            </p>
-            <p class="text-xs text-blue-600 mt-1">
-                申报时需满足：工资时长 + 志愿时长 = 本段总工时
-            </p>
-        </div>
-
         {% if error_message %}
         <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {{ error_message }}
         </div>
         {% endif %}
+        {% set total_minutes_for_view = system_minutes if system_minutes is defined else ((system_hours|default(0)) * 60)|int %}
 
         <form id="claim-form" action="/claim/{{ period.id }}" method="POST" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">工资时长 (小时)</label>
-                <input id="paid-hours" type="number" name="paid_hours" step="0.25" min="0" required
-                       value="{{ form_paid_hours if form_paid_hours is not none else (existing_claim.paid_hours if existing_claim else '') }}"
-                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                       placeholder="0">
-            </div>
-
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">志愿时长 (小时)</label>
-                <input id="volunteer-hours" type="number" name="volunteer_hours" step="0.25" min="0" required
-                       value="{{ form_volunteer_hours if form_volunteer_hours is not none else (existing_claim.volunteer_hours if existing_claim else '') }}"
-                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                       placeholder="0">
+            <div class="rounded-lg border border-gray-200">
+                <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-800">未申报工作量（按项目）</h3>
+                    <button type="button" id="toggle-all" class="text-xs text-blue-600 hover:underline">全不选</button>
+                </div>
+                <div class="p-4 space-y-4">
+                    {% if not project_groups %}
+                    <p class="text-sm text-gray-500">当前周期暂无可申报的未申报记录</p>
+                    {% else %}
+                    {% for group in project_groups %}
+                    {% set project_idx = loop.index0 %}
+                    <div class="rounded-lg border border-gray-100">
+                        <div class="px-3 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between text-sm">
+                            <div class="flex items-center gap-3">
+                                <span class="font-medium text-gray-800">{{ group.project_name }}</span>
+                                <span class="text-gray-500">{{ "%.2f"|format(group.total_minutes / 60) }} 小时</span>
+                            </div>
+                            <button
+                                type="button"
+                                class="project-toggle text-xs text-blue-600 hover:underline"
+                                data-project="{{ loop.index0 }}"
+                            >全不选</button>
+                        </div>
+                        <div class="divide-y divide-gray-100">
+                            {% for record in group.records %}
+                            {% set in_period = record.created_at >= period.start_date and record.created_at <= period.end_date %}
+                            <label class="px-3 py-2 grid grid-cols-[22px_130px_1fr_80px] gap-2 items-center text-xs hover:bg-blue-50/40 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    name="selected_record_ids"
+                                    value="{{ record.id }}"
+                                    data-minutes="{{ record.duration_minutes }}"
+                                    data-project="{{ project_idx }}"
+                                    class="record-checkbox h-4 w-4 text-blue-600 border-gray-300 rounded"
+                                    {% if in_period and record.id in selected_record_ids %}checked{% endif %}
+                                >
+                                <span class="text-gray-500">{{ record.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                <span class="text-gray-700 truncate whitespace-nowrap">{{ record.description }}</span>
+                                <span class="text-right text-gray-700 whitespace-nowrap">{{ "%.2f"|format(record.duration_minutes / 60) }}h</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
             </div>
 
             <div class="rounded-lg bg-gray-50 px-4 py-3 text-sm">
-                <p class="text-gray-600">
-                    当前合计: <span id="claim-total" class="font-semibold text-gray-800">0.00</span> 小时
-                </p>
-                <p class="text-gray-500 mt-1">
-                    目标总工时: <span class="font-medium">{{ "%.2f"|format(system_hours) }}</span> 小时
-                </p>
+                <div class="flex flex-wrap items-end gap-2 md:gap-3">
+                    <div class="min-w-[170px] flex-1">
+                        <label class="block text-xs font-medium text-gray-600 mb-1">工资时长（小时）</label>
+                        <input id="paid-hours" type="number" name="paid_hours" step="1" min="0" required
+                               value="{{ form_paid_hours if form_paid_hours is not none else ((existing_claim.paid_minutes // 60) if existing_claim else 0) }}"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                               placeholder="0">
+                    </div>
+                    <div class="min-w-[140px] flex-1">
+                        <label class="block text-xs font-medium text-gray-600 mb-1">工资时长（分钟）</label>
+                        <input id="paid-minutes" type="number" name="paid_minutes" step="1" min="0" max="59" required
+                               value="{{ form_paid_minutes if form_paid_minutes is not none else ((existing_claim.paid_minutes % 60) if existing_claim else 0) }}"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                               placeholder="0">
+                    </div>
+                    <span class="pb-2 text-lg font-semibold text-gray-500">+</span>
+                    <div class="min-w-[170px] flex-1">
+                        <label class="block text-xs font-medium text-gray-600 mb-1">志愿时长（小时）</label>
+                        <input id="volunteer-hours" type="number" name="volunteer_hours" step="1" min="0" required
+                               value="{{ form_volunteer_hours if form_volunteer_hours is not none else ((existing_claim.volunteer_minutes // 60) if existing_claim else 0) }}"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                               placeholder="0">
+                    </div>
+                    <span class="pb-2 text-lg font-semibold text-gray-500">=</span>
+                    <div class="pb-2 text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        总时长 <span id="selected-target-duration" class="text-blue-700">{{ total_minutes_for_view // 60 }}小时{{ total_minutes_for_view % 60 }}分钟</span>
+                    </div>
+                </div>
                 <p id="claim-validation-msg" class="mt-2 text-xs text-red-600 hidden"></p>
             </div>
 
@@ -71,38 +117,164 @@
 
 {% block extra_scripts %}
 <script>
-    const targetHours = Number({{ "%.2f"|format(system_hours) }});
     const paidInput = document.getElementById('paid-hours');
+    const paidMinutesInput = document.getElementById('paid-minutes');
     const volunteerInput = document.getElementById('volunteer-hours');
-    const totalEl = document.getElementById('claim-total');
     const msgEl = document.getElementById('claim-validation-msg');
     const form = document.getElementById('claim-form');
+    const checkboxes = Array.from(document.querySelectorAll('.record-checkbox'));
+    const projectToggleBtns = Array.from(document.querySelectorAll('.project-toggle'));
+    const targetDurationEl = document.getElementById('selected-target-duration');
+    const toggleAllBtn = document.getElementById('toggle-all');
+    let syncingInputs = false;
+
+    function checkboxesByProject(projectId) {
+        return checkboxes.filter((checkbox) => checkbox.dataset.project === projectId);
+    }
+
+    function refreshToggleLabels() {
+        if (toggleAllBtn) {
+            const allChecked = checkboxes.length > 0 && checkboxes.every((checkbox) => checkbox.checked);
+            toggleAllBtn.textContent = allChecked ? '全不选' : '全选';
+        }
+        projectToggleBtns.forEach((btn) => {
+            const group = checkboxesByProject(btn.dataset.project);
+            const allChecked = group.length > 0 && group.every((checkbox) => checkbox.checked);
+            btn.textContent = allChecked ? '全不选' : '全选';
+        });
+    }
+
+    function formatMinutesToHM(totalMinutes) {
+        const safeMinutes = Math.max(totalMinutes, 0);
+        const hours = Math.floor(safeMinutes / 60);
+        const minutes = safeMinutes % 60;
+        return `${hours}小时${minutes}分钟`;
+    }
+
+    function calcSelectedMinutes() {
+        const selectedMinutes = checkboxes
+            .filter((checkbox) => checkbox.checked)
+            .reduce((sum, checkbox) => sum + Number(checkbox.dataset.minutes || 0), 0);
+        targetDurationEl.textContent = formatMinutesToHM(selectedMinutes);
+        return selectedMinutes;
+    }
+
+    function normalizeIntInput(input, minValue, maxValue = null) {
+        const raw = Number(input.value || 0);
+        let next = Number.isFinite(raw) ? Math.floor(raw) : 0;
+        next = Math.max(next, minValue);
+        if (maxValue !== null) {
+            next = Math.min(next, maxValue);
+        }
+        input.value = String(next);
+        return next;
+    }
 
     function calcTotal() {
-        const paid = Number(paidInput.value || 0);
-        const volunteer = Number(volunteerInput.value || 0);
-        const total = Math.round((paid + volunteer) * 100) / 100;
-        totalEl.textContent = total.toFixed(2);
+        const paidHours = normalizeIntInput(paidInput, 0);
+        const paidMinutes = normalizeIntInput(paidMinutesInput, 0, 59);
+        const volunteerHours = normalizeIntInput(volunteerInput, 0);
+        const targetMinutes = calcSelectedMinutes();
+        const totalMinutes = paidHours * 60 + paidMinutes + volunteerHours * 60;
 
-        const ok = Math.abs(total - targetHours) < 0.001;
+        if (targetMinutes <= 0) {
+            msgEl.classList.remove('hidden');
+            msgEl.textContent = '请至少选择一条工作记录进行申报';
+            return false;
+        }
+
+        const ok = totalMinutes === targetMinutes;
         if (ok) {
             msgEl.classList.add('hidden');
             msgEl.textContent = '';
         } else {
             msgEl.classList.remove('hidden');
-            msgEl.textContent = `工资时长 + 志愿时长 必须等于 ${targetHours.toFixed(2)} 小时`;
+            msgEl.textContent = `工资时长 + 志愿时长 必须等于 ${formatMinutesToHM(targetMinutes)}`;
         }
         return ok;
     }
 
-    paidInput.addEventListener('input', calcTotal);
-    volunteerInput.addEventListener('input', calcTotal);
+    function syncOtherInput(changedInput) {
+        if (syncingInputs) {
+            return;
+        }
+        const targetMinutes = calcSelectedMinutes();
+        const paidHours = normalizeIntInput(paidInput, 0);
+        const paidMinutes = normalizeIntInput(paidMinutesInput, 0, 59);
+        const volunteerHours = normalizeIntInput(volunteerInput, 0);
+
+        let nextPaidHours = paidHours;
+        let nextPaidMinutes = paidMinutes;
+        let nextVolunteerHours = volunteerHours;
+
+        if (changedInput === 'paid') {
+            const paidTotalMinutes = paidHours * 60 + paidMinutes;
+            nextVolunteerHours = Math.max(Math.floor((targetMinutes - paidTotalMinutes) / 60), 0);
+        } else {
+            const remainingMinutes = Math.max(targetMinutes - (volunteerHours * 60), 0);
+            nextPaidHours = Math.floor(remainingMinutes / 60);
+            nextPaidMinutes = remainingMinutes % 60;
+        }
+
+        syncingInputs = true;
+        paidInput.value = String(nextPaidHours);
+        paidMinutesInput.value = String(nextPaidMinutes);
+        volunteerInput.value = String(nextVolunteerHours);
+        syncingInputs = false;
+    }
+
+    paidInput.addEventListener('input', function () {
+        syncOtherInput('paid');
+        calcTotal();
+    });
+    paidMinutesInput.addEventListener('input', function () {
+        syncOtherInput('paid');
+        calcTotal();
+    });
+    volunteerInput.addEventListener('input', function () {
+        syncOtherInput('volunteer');
+        calcTotal();
+    });
+    checkboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', function () {
+            refreshToggleLabels();
+            calcTotal();
+        });
+    });
+
+    if (toggleAllBtn) {
+        toggleAllBtn.addEventListener('click', function () {
+            const allChecked = checkboxes.length > 0 && checkboxes.every((checkbox) => checkbox.checked);
+            checkboxes.forEach((checkbox) => {
+                checkbox.checked = !allChecked;
+            });
+            refreshToggleLabels();
+            syncOtherInput('paid');
+            calcTotal();
+        });
+    }
+
+    projectToggleBtns.forEach((btn) => {
+        btn.addEventListener('click', function () {
+            const group = checkboxesByProject(btn.dataset.project);
+            const allChecked = group.length > 0 && group.every((checkbox) => checkbox.checked);
+            group.forEach((checkbox) => {
+                checkbox.checked = !allChecked;
+            });
+            refreshToggleLabels();
+            syncOtherInput('paid');
+            calcTotal();
+        });
+    });
+
     form.addEventListener('submit', function (event) {
         if (!calcTotal()) {
             event.preventDefault();
         }
     });
 
+    refreshToggleLabels();
+    syncOtherInput('paid');
     calcTotal();
 </script>
 {% endblock %}
