@@ -12,17 +12,136 @@
 - 让管理员按部门、成员、项目快速查询与汇总
 - 支持结算周期申报与 Excel 导出
 
-## 主要功能
+## 功能描述
 
-- 用户登录与身份管理
-- 工作记录填报（支持批量提交）
-- 个人时间线查看与筛选
+### 成员端
+
+- 用户登录与身份识别
+- 工作记录填报（支持单条与批量）
+- 个人时间线查看与筛选（含活跃热力图）
+- 记录项支持相关内容字段（链接/文本）展示
+- 申报页面按项目展示未申报记录，支持多选提交
+
+### 管理端
+
 - 部门统计与活动热力图
 - 部门管理（成员管理 + 项目可见性）
-- 结算周期管理与个人申报
+- 结算周期管理（周期创建、查看、关闭）
+- 结算详情中的成员申报查看与项目状态总结
 - Excel 导出（个人 / 项目 / 统计）
 
-## 近期更新（2026-03-22）
+### 结算与数据
+
+- 申报支持按记录勾选，提交后已选记录自动标记为已申报
+- 申报时长以分钟为最小计算单位，避免浮点误差
+- `SettlementClaim` 使用分钟整数字段存储：`paid_minutes`、`volunteer_minutes`、`total_minutes`
+- 支持旧库平滑迁移与历史小时字段回填
+
+## 配置说明
+
+项目使用 `.env` 读取运行配置（见 `.env.example`）：
+
+- `debug`
+- `database_url`
+- `secret_key`
+- `session_cookie`
+- `session_max_age`
+
+## 技术栈
+
+- 后端框架：`FastAPI`
+- 数据模型：`SQLModel`
+- 模板引擎：`Jinja2`
+- 数据库：`SQLite`（默认）
+- 前端交互：`HTMX` + 少量原生 JavaScript
+- 包管理：`uv`
+- 管理命令：`Typer`
+- 数据库迁移：`Alembic`
+
+## 项目结构
+
+```text
+CommitMyLabor/
+├── app/
+│   ├── main.py                # FastAPI 应用入口
+│   ├── cli.py                 # Typer 管理命令
+│   ├── core/                  # 核心配置与数据库
+│   │   ├── config.py
+│   │   └── database.py
+│   ├── models.py              # 数据模型
+│   ├── routers/               # 路由层
+│   ├── utils/                 # 业务工具（导出/热力图/脚本）
+│   ├── templates/             # Jinja2 模板
+│   └── static/                # 静态资源
+├── alembic/                   # Alembic 迁移目录
+├── alembic.ini
+├── pyproject.toml
+├── .env.example
+└── README.md
+```
+
+## 环境要求
+
+- Python `>= 3.14`
+- 建议使用 `uv` 管理依赖
+
+## 快速开始
+
+1. 安装依赖
+
+  ```shell
+  uv sync
+  ```
+
+1. 执行数据库迁移
+
+  ```shell
+  uv run alembic upgrade head
+  ```
+
+1. 启动应用
+
+  ```shell
+  uv run uvicorn app.main:app
+  ```
+
+启动后访问：`http://127.0.0.1:8000`
+
+## 常用命令
+
+- 初始化数据库
+
+  ```shell
+  uv run workload init-db
+  ```
+
+- 生成测试数据
+
+  ```shell
+  uv run workload seed-data
+  ```
+
+- 创建部门
+
+  ```shell
+  uv run workload create-dept "新媒体中心"
+  ```
+
+- 查看部门列表
+
+  ```shell
+  uv run workload list-dept
+  ```
+
+- 生成随机 `secret_key`
+
+  ```shell
+  uv run workload gen-secret
+  ```
+
+## 更新日志
+
+### 0.0.5 - 2026-03-22
 
 - 申报流程重构（按记录勾选）
   - 用户申报页可按项目查看并勾选「未申报工作记录」，默认全选。
@@ -47,17 +166,10 @@
 - 记录展示优化
   - 填报页侧栏由「今日记录」调整为「最近记录（最近24小时）」。
 
-## 配置说明
+- 数据库迁移
+  - 引入 Alembic，新增迁移脚本：补齐 `work_record.claimed`，并将 `settlement_claim` 升级为分钟整数字段（含旧小时字段回填）。
 
-项目使用 `.env` 读取运行配置（见 `.env.example`）：
-
-- `debug`
-- `database_url`
-- `secret_key`
-- `session_cookie`
-- `session_max_age`
-
-## 近期更新（2026-03-06）
+### 0.0.4 - 2026-03-06
 
 - 全局部门上下文
   - 侧边栏新增部门切换器，切换后全站按当前部门上下文工作。
@@ -98,89 +210,6 @@
   - 全局统一使用 `app.core.settings` 与 `SessionDep`。
   - 新增 CLI 命令：`workload gen-secret`。
   - 移除部门活跃窗口配置（`active_project_window_months`）及相关 CLI 命令。
-
-## 技术栈
-
-- 后端框架：`FastAPI`
-- 数据模型：`SQLModel`
-- 模板引擎：`Jinja2`
-- 数据库：`SQLite`（默认）
-- 前端交互：`HTMX` + 少量原生 JavaScript
-- 包管理：`uv`
-- 管理命令：`Typer`
-
-## 项目结构
-
-```text
-CommitMyLabor/
-├── app/
-│   ├── main.py                # FastAPI 应用入口
-│   ├── cli.py                 # Typer 管理命令
-│   ├── core/                  # 核心配置与数据库
-│   │   ├── config.py
-│   │   └── database.py
-│   ├── models/                # 数据模型
-│   ├── routers/               # 路由层
-│   ├── utils/                 # 业务工具（导出/热力图/脚本）
-│   ├── templates/             # Jinja2 模板
-│   └── static/                # 静态资源
-├── pyproject.toml
-├── .env.example
-└── README.md
-```
-
-## 环境要求
-
-- Python `>= 3.14`
-- 建议使用 `uv` 管理依赖
-
-## 快速开始
-
-1. 创建环境
-
-    ```shell
-    uv sync
-    ```
-
-2. 启动应用
-
-    ```shell
-    uv run uvicorn app.main:app
-    ```
-
-启动后访问：`http://127.0.0.1:8000`
-
-## 常用命令
-
-- 初始化数据库
-
-    ```shell
-    uv run workload init-db
-    ```
-
-- 生成测试数据
-
-    ```shell
-    uv run workload seed-data
-    ```
-
-- 创建部门
-
-    ```shell
-    uv run workload create-dept "新媒体中心"
-    ```
-
-- 查看部门列表
-
-    ```shell
-    uv run workload list-dept
-    ```
-
-- 生成随机 `secret_key`
-
-    ```shell
-    uv run workload gen-secret
-    ```
 
 ## 开发说明
 
