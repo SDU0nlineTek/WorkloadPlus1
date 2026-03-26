@@ -238,6 +238,31 @@ async def update_project_visibility(
     return RedirectResponse(url="/admin/department", status_code=302)
 
 
+@router.post("/department/{dept_id}/projects/{project_id}/rename")
+async def rename_project(s: AdminSession, project_id: UUID, new_name: str = Form(...)):
+    """重命名项目。"""
+    project = s.db.get(Project, project_id)
+    if not project or project.dept_id != s.dept.id:
+        raise HTTPException(404, "项目不存在")
+
+    normalized_name = new_name.strip()
+    if not normalized_name:
+        raise HTTPException(400, "项目名称不能为空")
+
+    same_name_project = s.db.exec(
+        select(Project)
+        .where(Project.dept_id == s.dept.id)
+        .where(Project.name == normalized_name)
+    ).first()
+    if same_name_project and same_name_project.id != project.id:
+        raise HTTPException(400, "同部门下项目名称已存在")
+
+    project.name = normalized_name
+    s.db.add(project)
+    s.db.commit()
+    return RedirectResponse(url="/admin/department", status_code=302)
+
+
 @router.post("/department/{dept_id}/{member_id}/remove")
 async def remove_member(s: AdminSession, dept_id: UUID, member_id: UUID):
     """移除部门成员"""
@@ -372,8 +397,46 @@ async def close_settlement(s: PeriodAdminSession):
     return {"message": "已关闭"}
 
 
+@router.post("/settlement/{period_id}/delete")
+async def delete_settlement(s: PeriodAdminSession):
+    """删除结算周期，并清理关联申报。"""
+    claim_ids = s.db.exec(
+        select(SettlementClaim.id).where(SettlementClaim.period_id == s.period.id)
+    ).all()
+
+    if claim_ids:
+        related_records = s.db.exec(
+            select(WorkRecord).where(col(WorkRecord.claim_id).in_(claim_ids))
+        ).all()
+        for record in related_records:
+            record.claim_id = None
+            s.db.add(record)
+
+    summaries = s.db.exec(
+        select(SettlementProjectSummary).where(
+            SettlementProjectSummary.period_id == s.period.id
+        )
+    ).all()
+    for summary in summaries:
+        s.db.delete(summary)
+
+    claims = s.db.exec(
+        select(SettlementClaim).where(SettlementClaim.period_id == s.period.id)
+    ).all()
+    for claim in claims:
+        s.db.delete(claim)
+
+    s.db.delete(s.period)
+    s.db.commit()
+    return {"message": "已删除"}
+
+
 @router.get("/settlement/{period_id}/claims", response_class=HTMLResponse)
-async def settlement_claims(s: PeriodAdminSession, saved: bool = Query(False)):
+async def settlement_claims(
+    s: PeriodAdminSession,
+    saved: bool = Query(False),
+    user_id: Optional[UUID] = Query(None),
+):
     """查看结算周期申报情况"""
     period_records = s.db.exec(
         select(WorkRecord)
@@ -438,6 +501,7 @@ async def settlement_claims(s: PeriodAdminSession, saved: bool = Query(False)):
             }
         )
 
+    claim_by_user_id = {claim.user_id: claim for claim in s.period.claims}
     member_data = []
     for u in s.dept.users:
         # 系统记录工时
@@ -455,15 +519,36 @@ async def settlement_claims(s: PeriodAdminSession, saved: bool = Query(False)):
             {
                 "user": u,
                 "system_hours": system_minutes / 60,  # 查找申报
-                "claim": next((c for c in s.period.claims if c.user_id == u.id), None),
+                "claim": claim_by_user_id.get(u.id),
             }
         )
+
+    selected_member_detail = None
+    selected_member_records: list[WorkRecord] = []
+    if user_id:
+        selected_member_detail = next(
+            (item for item in member_data if item["user"].id == user_id), None
+        )
+        if selected_member_detail:
+            selected_member_records = s.db.exec(
+                select(WorkRecord)
+                .join(Project, col(WorkRecord.project_id) == Project.id)
+                .where(WorkRecord.user_id == user_id)
+                .where(WorkRecord.dept_id == s.period.dept_id)
+                .where(WorkRecord.created_at >= s.period.start_date)
+                .where(WorkRecord.created_at <= s.period.end_date)
+                .order_by(col(WorkRecord.created_at).desc())
+            ).all()
+
     return templates.TemplateResponse(
         "admin/settlement_claims.html",
         {
             "request": s.request,
             "period": s.period,
             "member_data": member_data,
+            "selected_user_id": user_id,
+            "selected_member_detail": selected_member_detail,
+            "selected_member_records": selected_member_records,
             "project_summary_rows": project_summary_rows,
             "project_status_options": [item.value for item in PROJECT_STATUS_OPTIONS],
             "saved": saved,

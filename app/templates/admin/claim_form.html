@@ -15,12 +15,14 @@
             {{ error_message }}
         </div>
         {% endif %}
-        {% set total_minutes_for_view = system_minutes if system_minutes is defined else ((system_hours|default(0)) * 60)|int %}
+        {% set total_minutes_for_view = system_minutes|default(0) %}
 
         <form id="claim-form" action="/claim/{{ period.id }}" method="POST" class="space-y-4">
             <div class="rounded-lg border border-gray-200">
                 <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-800">未申报工作量（按项目）</h3>
+                    <h3 class="text-sm font-semibold text-gray-800">
+                        {% if existing_claim %}已填写与未申报工作量（按项目）{% else %}未申报工作量（按项目）{% endif %}
+                    </h3>
                     <button type="button" id="toggle-all" class="text-xs text-blue-600 hover:underline">全不选</button>
                 </div>
                 <div class="p-4 space-y-4">

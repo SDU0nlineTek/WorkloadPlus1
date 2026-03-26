@@ -73,6 +73,10 @@
                             关闭
                         </button>
                         {% endif %}
+                        <button onclick="deletePeriod('{{ item.period.id }}')"
+                                class="px-3 py-1 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50">
+                            删除
+                        </button>
                     </div>
                 </div>
                 {% else %}
@@ -92,6 +96,18 @@
         try {
             const response = await fetch(`/admin/settlement/${id}/close`, { method: 'POST' });
             if (!response.ok) throw new Error('关闭失败');
+            location.reload();
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    }
+
+    async function deletePeriod(id) {
+        if (!confirm('确定删除该结算周期吗？将清空该周期关联记录的申报关联。')) return;
+
+        try {
+            const response = await fetch(`/admin/settlement/${id}/delete`, { method: 'POST' });
+            if (!response.ok) throw new Error('删除失败');
             location.reload();
         } catch (e) {
             showToast(e.message, 'error');
