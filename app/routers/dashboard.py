@@ -1,7 +1,6 @@
 """个人时间线路由"""
 
 from datetime import datetime, timedelta
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Query
@@ -20,9 +19,9 @@ router = APIRouter(tags=["时间线"])
 @router.get("/timeline", response_class=HTMLResponse)
 async def timeline_page(
     s: UserSession,
-    month: Optional[str] = Query(None),  # 格式: 2024-01
-    dept_id: Optional[UUID] = Query(None),
-    day: Optional[str] = Query(None),  # 格式: 2024-01-31
+    month: str | None = Query(None),  # 格式: 2024-01
+    dept_id: UUID | None = Query(None),
+    day: str | None = Query(None),  # 格式: 2024-01-31
 ):
     """个人时间线页面"""
     # 解析当前部门（来自侧边栏选择），并兼容旧参数。
@@ -116,6 +115,7 @@ async def timeline_page(
     activity_heatmap = build_activity_heatmap(heatmap_timestamps)
 
     return templates.TemplateResponse(
+        s.request,
         "timeline.html",
         {
             "request": s.request,
@@ -133,7 +133,7 @@ async def timeline_page(
 
 
 @router.get("/timeline/filter", response_class=HTMLResponse)
-async def timeline_filter(s: UseridSession, month: Optional[str] = Query(None)):
+async def timeline_filter(s: UseridSession, month: str | None = Query(None)):
     """HTMX 筛选端点"""
     # 构建查询
     query = (

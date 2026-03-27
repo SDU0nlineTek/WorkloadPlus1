@@ -32,11 +32,19 @@ def upgrade() -> None:
         return
 
     if "claim_id" not in work_record_columns:
-        op.add_column("work_record", sa.Column("claim_id", sa.String(length=32), nullable=True))
-        op.create_index("ix_work_record_claim_id", "work_record", ["claim_id"], unique=False)
+        op.add_column(
+            "work_record", sa.Column("claim_id", sa.String(length=32), nullable=True)
+        )
+        op.create_index(
+            "ix_work_record_claim_id", "work_record", ["claim_id"], unique=False
+        )
 
     work_record_columns = _column_names("work_record")
-    if "claimed" in work_record_columns and _column_names("settlement_period") and _column_names("settlement_claim"):
+    if (
+        "claimed" in work_record_columns
+        and _column_names("settlement_period")
+        and _column_names("settlement_claim")
+    ):
         op.execute(
             "UPDATE work_record "
             "SET claim_id = ("
@@ -63,7 +71,12 @@ def downgrade() -> None:
         return
 
     if "claimed" not in work_record_columns:
-        op.add_column("work_record", sa.Column("claimed", sa.Boolean(), nullable=False, server_default=sa.text("0")))
+        op.add_column(
+            "work_record",
+            sa.Column(
+                "claimed", sa.Boolean(), nullable=False, server_default=sa.text("0")
+            ),
+        )
 
     work_record_columns = _column_names("work_record")
     if "claim_id" in work_record_columns:
@@ -71,7 +84,9 @@ def downgrade() -> None:
         bind = op.get_bind()
         inspector = sa.inspect(bind)
         index_names = {
-            idx["name"] for idx in inspector.get_indexes("work_record") if idx.get("name")
+            idx["name"]
+            for idx in inspector.get_indexes("work_record")
+            if idx.get("name")
         }
         with op.batch_alter_table("work_record") as batch_op:
             if "ix_work_record_claim_id" in index_names:

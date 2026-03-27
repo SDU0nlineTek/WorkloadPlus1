@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from io import BytesIO
-from typing import Optional
 from uuid import UUID
 
 from openpyxl import Workbook
@@ -23,11 +22,11 @@ from app.models import (
 def create_export_workbook(
     session: Session,
     dept_id: UUID,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    period_id: Optional[UUID] = None,
-    user_id: Optional[UUID] = None,
-    project_id: Optional[UUID] = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    period_id: UUID | None = None,
+    user_id: UUID | None = None,
+    project_id: UUID | None = None,
 ) -> BytesIO:
     """
     创建导出 Excel 工作簿
@@ -45,7 +44,7 @@ def create_export_workbook(
         BytesIO: Excel 文件流
     """
     wb = Workbook()
-    wb.properties.creator += f"; {settings.app_name}"
+    wb.properties.creator = f"{wb.properties.creator}; {settings.app_name}"
     wb.properties.lastModifiedBy = settings.app_name
 
     # 样式定义

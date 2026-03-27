@@ -48,18 +48,35 @@ def downgrade() -> None:
     with op.batch_alter_table("settlement_claim") as batch_op:
         if "paid_hours" not in claim_columns:
             batch_op.add_column(
-                sa.Column("paid_hours", sa.Float(), nullable=False, server_default=sa.text("0"))
+                sa.Column(
+                    "paid_hours",
+                    sa.Float(),
+                    nullable=False,
+                    server_default=sa.text("0"),
+                )
             )
         if "volunteer_hours" not in claim_columns:
             batch_op.add_column(
-                sa.Column("volunteer_hours", sa.Float(), nullable=False, server_default=sa.text("0"))
+                sa.Column(
+                    "volunteer_hours",
+                    sa.Float(),
+                    nullable=False,
+                    server_default=sa.text("0"),
+                )
             )
         if "total_hours" not in claim_columns:
             batch_op.add_column(
-                sa.Column("total_hours", sa.Float(), nullable=False, server_default=sa.text("0"))
+                sa.Column(
+                    "total_hours",
+                    sa.Float(),
+                    nullable=False,
+                    server_default=sa.text("0"),
+                )
             )
 
-    if {"paid_minutes", "volunteer_minutes", "total_minutes"}.issubset(_column_names("settlement_claim")):
+    if {"paid_minutes", "volunteer_minutes", "total_minutes"}.issubset(
+        _column_names("settlement_claim")
+    ):
         op.execute(
             "UPDATE settlement_claim "
             "SET paid_hours = ROUND(COALESCE(paid_minutes, 0) / 60.0, 2), "

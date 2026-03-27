@@ -1,14 +1,14 @@
-{% extends "base.html" %}
-
-{% block title %}无权限 - 工作量+1{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}无权限 - 工作量+1{% endblock %} {%
+block content %}
 <div class="max-w-md mx-auto text-center py-20">
-    <div class="text-6xl mb-4">🔒</div>
-    <h2 class="text-2xl font-bold text-gray-800 mb-4">暂无管理权限</h2>
-    <p class="text-gray-500 mb-6">您当前不是任何部门的管理员</p>
-    <a href="/record" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
-        返回填报
-    </a>
+  <div class="text-6xl mb-4">🔒</div>
+  <h2 class="text-2xl font-bold text-gray-800 mb-4">暂无管理权限</h2>
+  <p class="text-gray-500 mb-6">您当前不是任何部门的管理员</p>
+  <a
+    href="/record"
+    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+  >
+    返回填报
+  </a>
 </div>
 {% endblock %}

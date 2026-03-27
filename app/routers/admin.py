@@ -1,9 +1,9 @@
 """管理员路由"""
 
 import re
+from contextlib import suppress
 from datetime import datetime
 from enum import StrEnum
-from typing import Optional
 from urllib.parse import quote, urlencode
 from uuid import UUID
 
@@ -42,51 +42,67 @@ class PROJECT_STATUS_OPTIONS(StrEnum):
 @router.get("/stats", response_class=HTMLResponse)
 async def stats_page(
     s: AdminSession,
-    start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None),
-    user_id: Optional[UUID] = Query(None),
-    project_id: Optional[UUID] = Query(None),
+    start_date: str = Query(""),
+    end_date: str = Query(""),
+    user_id: UUID | None = Query(None),
+    project_id: UUID | None = Query(None),
 ):
     """管理员统计页面"""
-    # 成员统计
+    parsed_start_dt = None
+    parsed_end_dt = None
+    with suppress(ValueError):
+        parsed_start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    with suppress(ValueError):
+        parsed_end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59
+        )
     members = []
+    time_query = select(func.sum(WorkRecord.duration_minutes)).where(
+        WorkRecord.dept_id == s.dept.id
+    )
+    record_query = select(func.count(col(WorkRecord.id)))
+    if parsed_start_dt:
+        time_query = time_query.where(WorkRecord.created_at >= parsed_start_dt)
+        record_query = record_query.where(WorkRecord.created_at >= parsed_start_dt)
+    if parsed_end_dt:
+        time_query = time_query.where(WorkRecord.created_at <= parsed_end_dt)
+        record_query = record_query.where(WorkRecord.created_at <= parsed_end_dt)
     for link in s.dept.user_links:
         # 计算该成员的总工时
         total_minutes = (
-            s.db.exec(
-                select(func.sum(WorkRecord.duration_minutes))
-                .where(WorkRecord.user_id == link.user_id)
-                .where(WorkRecord.dept_id == s.dept.id)
-            ).first()
+            s.db.exec(time_query.where(WorkRecord.user_id == link.user_id)).first() or 0
+        )
+        record_count = (
+            s.db.exec(record_query.where(WorkRecord.user_id == link.user_id)).first()
             or 0
         )
         members.append(
             {
                 "id": link.user.id,
                 "name": link.user.name,
-                "sduid": link.user.sduid,
+                "record_count": record_count,
                 "is_admin": link.is_admin,
                 "total_hours": total_minutes // 60,
                 "total_mins": total_minutes % 60,
             }
         )
     # 项目统计
+    record_query = select(func.count(col(WorkRecord.id)))
+    time_query = select(func.sum(WorkRecord.duration_minutes))
+    if parsed_start_dt:
+        record_query = record_query.where(WorkRecord.created_at >= parsed_start_dt)
+        time_query = time_query.where(WorkRecord.created_at >= parsed_start_dt)
+    if parsed_end_dt:
+        record_query = record_query.where(WorkRecord.created_at <= parsed_end_dt)
+        time_query = time_query.where(WorkRecord.created_at <= parsed_end_dt)
     project_stats = []
     for project in s.dept.projects:
         record_count = (
-            s.db.exec(
-                select(func.count(col(WorkRecord.id))).where(
-                    WorkRecord.project_id == project.id
-                )
-            ).first()
+            s.db.exec(record_query.where(WorkRecord.project_id == project.id)).first()
             or 0
         )
         total_minutes = (
-            s.db.exec(
-                select(func.sum(WorkRecord.duration_minutes)).where(
-                    WorkRecord.project_id == project.id
-                )
-            ).first()
+            s.db.exec(time_query.where(WorkRecord.project_id == project.id)).first()
             or 0
         )
         project_stats.append(
@@ -99,20 +115,7 @@ async def stats_page(
                 "last_active": project.last_active_at.strftime("%Y-%m-%d"),
             }
         )
-    parsed_start_dt = None
-    parsed_end_dt = None
-    if start_date:
-        try:
-            parsed_start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        except ValueError:
-            start_date = None
-    if end_date:
-        try:
-            parsed_end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(
-                hour=23, minute=59, second=59
-            )
-        except ValueError:
-            end_date = None
+
     # 当前部门整体热力图
     department_query = select(WorkRecord).where(WorkRecord.dept_id == s.dept.id)
     if parsed_start_dt:
@@ -140,6 +143,7 @@ async def stats_page(
     ).all()
     filter_heatmap = build_activity_heatmap([r.created_at for r in filtered_records])
     return templates.TemplateResponse(
+        s.request,
         "admin/stats.html",
         {
             "request": s.request,
@@ -210,6 +214,7 @@ async def department_page(s: AdminSession):
         )
     join_link = f"{str(s.request.base_url).rstrip('/')}/admin/join/{s.dept.id}"
     return templates.TemplateResponse(
+        s.request,
         "admin/department.html",
         {
             "request": s.request,
@@ -255,7 +260,51 @@ async def rename_project(s: AdminSession, project_id: UUID, new_name: str = Form
         .where(Project.name == normalized_name)
     ).first()
     if same_name_project and same_name_project.id != project.id:
-        raise HTTPException(400, "同部门下项目名称已存在")
+        # 同名项目合并：迁移记录与结算总结到已存在项目，再删除当前项目。
+        records_to_move = s.db.exec(
+            select(WorkRecord).where(WorkRecord.project_id == project.id)
+        ).all()
+        for record in records_to_move:
+            record.project_id = same_name_project.id
+            s.db.add(record)
+
+        summaries_to_move = s.db.exec(
+            select(SettlementProjectSummary).where(
+                SettlementProjectSummary.project_id == project.id
+            )
+        ).all()
+        for source_summary in summaries_to_move:
+            target_summary = s.db.exec(
+                select(SettlementProjectSummary)
+                .where(SettlementProjectSummary.period_id == source_summary.period_id)
+                .where(SettlementProjectSummary.project_id == same_name_project.id)
+            ).first()
+
+            if target_summary:
+                source_text = source_summary.summary.strip()
+                target_text = target_summary.summary.strip()
+                if source_text and source_text != target_text:
+                    target_summary.summary = f"{target_text}\n\n---\n\n{source_text}"
+                target_summary.updated_at = max(
+                    target_summary.updated_at, source_summary.updated_at
+                )
+                s.db.add(target_summary)
+                s.db.delete(source_summary)
+                continue
+
+            source_summary.project_id = same_name_project.id
+            s.db.add(source_summary)
+
+        same_name_project.is_visible = (
+            same_name_project.is_visible or project.is_visible
+        )
+        same_name_project.last_active_at = max(
+            same_name_project.last_active_at, project.last_active_at
+        )
+        s.db.add(same_name_project)
+        s.db.delete(project)
+        s.db.commit()
+        return RedirectResponse(url="/admin/department", status_code=302)
 
     project.name = normalized_name
     s.db.add(project)
@@ -302,10 +351,10 @@ async def join_department(s: UserSession, dept_id: UUID):
 @router.get("/records", response_class=HTMLResponse)
 async def records_page(
     s: AdminSession,
-    start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None),
-    user_id: Optional[UUID] = Query(None),
-    project_id: Optional[UUID] = Query(None),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    user_id: UUID | None = Query(None),
+    project_id: UUID | None = Query(None),
 ):
     """记录查询已并入统计页，保留重定向兼容。"""
     params: dict[str, str | UUID] = {}
@@ -349,6 +398,7 @@ async def settlement_page(s: AdminSession):
             }
         )
     return templates.TemplateResponse(
+        s.request,
         "admin/settlement.html",
         {
             "request": s.request,
@@ -435,7 +485,7 @@ async def delete_settlement(s: PeriodAdminSession):
 async def settlement_claims(
     s: PeriodAdminSession,
     saved: bool = Query(False),
-    user_id: Optional[UUID] = Query(None),
+    user_id: UUID | None = Query(None),
 ):
     """查看结算周期申报情况"""
     period_records = s.db.exec(
@@ -530,17 +580,20 @@ async def settlement_claims(
             (item for item in member_data if item["user"].id == user_id), None
         )
         if selected_member_detail:
-            selected_member_records = s.db.exec(
-                select(WorkRecord)
-                .join(Project, col(WorkRecord.project_id) == Project.id)
-                .where(WorkRecord.user_id == user_id)
-                .where(WorkRecord.dept_id == s.period.dept_id)
-                .where(WorkRecord.created_at >= s.period.start_date)
-                .where(WorkRecord.created_at <= s.period.end_date)
-                .order_by(col(WorkRecord.created_at).desc())
-            ).all()
+            selected_member_records = list(
+                s.db.exec(
+                    select(WorkRecord)
+                    .join(Project, col(WorkRecord.project_id) == Project.id)
+                    .where(WorkRecord.user_id == user_id)
+                    .where(WorkRecord.dept_id == s.period.dept_id)
+                    .where(WorkRecord.created_at >= s.period.start_date)
+                    .where(WorkRecord.created_at <= s.period.end_date)
+                    .order_by(col(WorkRecord.created_at).desc())
+                ).all()
+            )
 
     return templates.TemplateResponse(
+        s.request,
         "admin/settlement_claims.html",
         {
             "request": s.request,
@@ -618,28 +671,24 @@ async def save_settlement_project_summaries(
 @router.post("/export/download")
 async def download_export(
     s: AdminSession,
-    period_id: Optional[UUID] = Form(None),
-    start_date: Optional[str] = Form(None),
-    end_date: Optional[str] = Form(None),
-    user_id: Optional[UUID] = Form(None),
-    project_id: Optional[UUID] = Form(None),
+    period_id: UUID | None = Form(None),
+    start_date: str | None = Form(None),
+    end_date: str | None = Form(None),
+    user_id: UUID | None = Form(None),
+    project_id: UUID | None = Form(None),
 ):
     """下载 Excel 导出"""
     # 解析日期
     sd = None
     ed = None
     if start_date:
-        try:
+        with suppress(Exception):
             sd = datetime.strptime(start_date, "%Y-%m-%d")
-        except Exception:
-            pass
     if end_date:
-        try:
+        with suppress(Exception):
             ed = datetime.strptime(end_date, "%Y-%m-%d").replace(
                 hour=23, minute=59, second=59
             )
-        except Exception:
-            pass
 
     # 生成 Excel
     output = create_export_workbook(

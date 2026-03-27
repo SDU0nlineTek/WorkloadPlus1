@@ -23,11 +23,11 @@ class UserDeptLink(Table, table=True):
     dept_id: UUID = Field(foreign_key="department.id", primary_key=True)
     is_admin: bool = Field(default=False)
 
-    user: "User" = Relationship(
+    user: User = Relationship(
         back_populates="dept_links",
         sa_relationship_kwargs={"overlaps": "departments,users"},
     )
-    department: "Department" = Relationship(
+    department: Department = Relationship(
         back_populates="user_links",
         sa_relationship_kwargs={"overlaps": "departments,users"},
     )
@@ -40,14 +40,14 @@ class User(Table, table=True):
     name: str = Field()
     sduid: str = Field(min_length=9, max_length=12, index=True)
 
-    dept_links: list["UserDeptLink"] = Relationship(
+    dept_links: list[UserDeptLink] = Relationship(
         back_populates="user",
         sa_relationship_kwargs={"overlaps": "departments,users"},
     )
-    work_records: list["WorkRecord"] = Relationship(back_populates="user")
-    settlement_claims: list["SettlementClaim"] = Relationship(back_populates="user")
+    work_records: list[WorkRecord] = Relationship(back_populates="user")
+    settlement_claims: list[SettlementClaim] = Relationship(back_populates="user")
 
-    departments: list["Department"] = Relationship(
+    departments: list[Department] = Relationship(
         back_populates="users",
         link_model=UserDeptLink,
         sa_relationship_kwargs={"overlaps": "dept_links,user,department,user_links"},
@@ -90,16 +90,16 @@ class Department(Table, table=True):
 
     name: str = Field(max_length=100, unique=True)
 
-    user_links: list["UserDeptLink"] = Relationship(
+    user_links: list[UserDeptLink] = Relationship(
         back_populates="department",
         sa_relationship_kwargs={"overlaps": "departments,users"},
     )
-    projects: list["Project"] = Relationship(back_populates="department")
-    work_records: list["WorkRecord"] = Relationship(back_populates="department")
-    settlement_periods: list["SettlementPeriod"] = Relationship(
+    projects: list[Project] = Relationship(back_populates="department")
+    work_records: list[WorkRecord] = Relationship(back_populates="department")
+    settlement_periods: list[SettlementPeriod] = Relationship(
         back_populates="department"
     )
-    users: list["User"] = Relationship(
+    users: list[User] = Relationship(
         back_populates="departments",
         link_model=UserDeptLink,
         sa_relationship_kwargs={"overlaps": "dept_links,user,department,user_links"},
@@ -114,9 +114,9 @@ class Project(Table, table=True):
     is_visible: bool = Field(default=True)
     last_active_at: datetime = Field(default_factory=datetime.now)
 
-    department: "Department" = Relationship(back_populates="projects")
-    work_records: list["WorkRecord"] = Relationship(back_populates="project")
-    settlement_summaries: list["SettlementProjectSummary"] = Relationship(
+    department: Department = Relationship(back_populates="projects")
+    work_records: list[WorkRecord] = Relationship(back_populates="project")
+    settlement_summaries: list[SettlementProjectSummary] = Relationship(
         back_populates="project"
     )
 
@@ -138,9 +138,9 @@ class WorkRecord(Table, table=True):
         default=None, foreign_key="settlement_claim.id", index=True
     )
 
-    user: "User" = Relationship(back_populates="work_records")
-    department: "Department" = Relationship(back_populates="work_records")
-    project: "Project" = Relationship(back_populates="work_records")
+    user: User = Relationship(back_populates="work_records")
+    department: Department = Relationship(back_populates="work_records")
+    project: Project = Relationship(back_populates="work_records")
 
 
 class SettlementPeriod(Table, table=True):
@@ -155,9 +155,9 @@ class SettlementPeriod(Table, table=True):
     is_open: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.now)
 
-    department: "Department" = Relationship(back_populates="settlement_periods")
-    claims: list["SettlementClaim"] = Relationship(back_populates="period")
-    project_summaries: list["SettlementProjectSummary"] = Relationship(
+    department: Department = Relationship(back_populates="settlement_periods")
+    claims: list[SettlementClaim] = Relationship(back_populates="period")
+    project_summaries: list[SettlementProjectSummary] = Relationship(
         back_populates="period"
     )
 
@@ -175,8 +175,8 @@ class SettlementClaim(Table, table=True):
     total_minutes: int = Field(default=0)
     submitted_at: datetime = Field(default_factory=datetime.now)
 
-    period: "SettlementPeriod" = Relationship(back_populates="claims")
-    user: "User" = Relationship(back_populates="settlement_claims")
+    period: SettlementPeriod = Relationship(back_populates="claims")
+    user: User = Relationship(back_populates="settlement_claims")
 
     @property
     def paid_hours(self) -> float:
@@ -205,5 +205,5 @@ class SettlementProjectSummary(Table, table=True):
     summary: str = Field(max_length=2000)
     updated_at: datetime = Field(default_factory=datetime.now)
 
-    period: "SettlementPeriod" = Relationship(back_populates="project_summaries")
-    project: "Project" = Relationship(back_populates="settlement_summaries")
+    period: SettlementPeriod = Relationship(back_populates="project_summaries")
+    project: Project = Relationship(back_populates="settlement_summaries")

@@ -1,5 +1,6 @@
 """测试数据生成脚本"""
 
+from calendar import monthrange
 from datetime import datetime, timedelta
 from random import choice, randint
 
@@ -29,37 +30,28 @@ def create_test_data():
         print("开始生成测试数据...")
 
         # 1. 创建部门
-        departments_data = [
-            {"name": "新媒体中心"},
-            {"name": "技术部"},
-            {"name": "运营部"},
+        depts = [
+            Department(name="新媒体中心"),
+            Department(name="技术部"),
+            Department(name="运营部"),
         ]
-
-        depts = []
-        for data in departments_data:
-            dept = Department(name=data["name"])
-            session.add(dept)
-            depts.append(dept)
+        session.add_all(depts)
         session.commit()
         for d in depts:
             session.refresh(d)
         print(f"✓ 创建了 {len(depts)} 个部门")
 
         # 2. 创建用户
-        users_data = [
-            {"name": "张三", "sduid": "2021001", "phone": "13800000001"},
-            {"name": "李四", "sduid": "2021002", "phone": "13800000002"},
-            {"name": "王五", "sduid": "2021003", "phone": "13800000003"},
-            {"name": "赵六", "sduid": "2021004", "phone": "13800000004"},
-            {"name": "钱七", "sduid": "2021005", "phone": "13800000005"},
-            {"name": "孙八", "sduid": "2021006", "phone": "13800000006"},
-        ]
 
-        users = []
-        for data in users_data:
-            user = User(name=data["name"], sduid=data["sduid"], phone=data["phone"])
-            session.add(user)
-            users.append(user)
+        users = [
+            User(name="张三", sduid="2021001", phone="13800000001"),
+            User(name="李四", sduid="2021002", phone="13800000002"),
+            User(name="王五", sduid="2021003", phone="13800000003"),
+            User(name="赵六", sduid="2021004", phone="13800000004"),
+            User(name="钱七", sduid="2021005", phone="13800000005"),
+            User(name="孙八", sduid="2021006", phone="13800000006"),
+        ]
+        session.add_all(users)
         session.commit()
         for u in users:
             session.refresh(u)
@@ -96,25 +88,17 @@ def create_test_data():
         print("✓ 创建了用户-部门关联")
 
         # 4. 创建项目
-        projects_data = [
-            {"name": "公众号推文", "dept_id": depts[0].id},
-            {"name": "视频剪辑", "dept_id": depts[0].id},
-            {"name": "海报设计", "dept_id": depts[0].id},
-            {"name": "网站开发", "dept_id": depts[1].id},
-            {"name": "小程序维护", "dept_id": depts[1].id},
-            {"name": "活动策划", "dept_id": depts[2].id},
-            {"name": "用户调研", "dept_id": depts[2].id},
-        ]
 
-        projects = []
-        for data in projects_data:
-            project = Project(
-                dept_id=data["dept_id"],
-                name=data["name"],
-                last_active_at=datetime.now() - timedelta(days=randint(0, 60)),
-            )
-            session.add(project)
-            projects.append(project)
+        projects = [
+            Project(name="公众号推文", dept_id=depts[0].id),
+            Project(name="视频剪辑", dept_id=depts[0].id),
+            Project(name="海报设计", dept_id=depts[0].id),
+            Project(name="网站开发", dept_id=depts[1].id),
+            Project(name="小程序维护", dept_id=depts[1].id),
+            Project(name="活动策划", dept_id=depts[2].id),
+            Project(name="用户调研", dept_id=depts[2].id),
+        ]
+        session.add_all(projects)
         session.commit()
         for p in projects:
             session.refresh(p)
@@ -170,43 +154,62 @@ def create_test_data():
 
         session.commit()
         print(f"✓ 创建了 {records_count} 条工作记录")
-
+        now = datetime.now()
+        month = now.month
         # 6. 创建结算周期
-        periods_data = [
-            {
-                "dept_id": depts[0].id,
-                "title": "3月工作量",
-                "start": datetime(2024, 3, 1),
-                "end": datetime(2024, 3, 31, 23, 59, 59),
-                "is_open": False,
-            },
-            {
-                "dept_id": depts[0].id,
-                "title": "4月工作量",
-                "start": datetime(2024, 4, 1),
-                "end": datetime(2024, 4, 30, 23, 59, 59),
-                "is_open": True,
-            },
-            {
-                "dept_id": depts[1].id,
-                "title": "Q1技术部工作量",
-                "start": datetime(2024, 1, 1),
-                "end": datetime(2024, 3, 31, 23, 59, 59),
-                "is_open": False,
-            },
+        periods = [
+            SettlementPeriod(
+                dept_id=depts[0].id,
+                title=f"{now.month}月工作量",
+                start_date=now.replace(
+                    day=1, hour=0, minute=0, second=0, microsecond=0
+                ),
+                end_date=now.replace(
+                    day=monthrange(now.year, now.month)[1],
+                    hour=23,
+                    minute=59,
+                    second=59,
+                    microsecond=0,
+                ),
+                is_open=False,
+            ),
+            SettlementPeriod(
+                dept_id=depts[0].id,
+                title=f"{now.month + 1}月工作量",
+                start_date=(
+                    now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                    + timedelta(days=monthrange(now.year, now.month)[1])
+                ),
+                end_date=(
+                    now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                    + timedelta(days=monthrange(now.year, now.month)[1])
+                    + timedelta(days=monthrange(now.year, now.month + 1)[1], seconds=-1)
+                ),
+                is_open=True,
+            ),
+            SettlementPeriod(
+                dept_id=depts[1].id,
+                title=f"Q{(month - 1) // 3 + 1}技术部工作量",
+                start_date=now.replace(
+                    month=((month - 1) // 3) * 3 + 1,
+                    day=1,
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                ),
+                end_date=now.replace(
+                    month=((month - 1) // 3) * 3 + 3,
+                    day=monthrange(now.year, ((month - 1) // 3) * 3 + 3)[1],
+                    hour=23,
+                    minute=59,
+                    second=59,
+                    microsecond=0,
+                ),
+                is_open=True,
+            ),
         ]
-
-        periods = []
-        for data in periods_data:
-            period = SettlementPeriod(
-                dept_id=data["dept_id"],
-                title=data["title"],
-                start_date=data["start"],
-                end_date=data["end"],
-                is_open=data["is_open"],
-            )
-            session.add(period)
-            periods.append(period)
+        session.add_all(periods)
         session.commit()
         print(f"✓ 创建了 {len(periods)} 个结算周期")
 

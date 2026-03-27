@@ -1,204 +1,252 @@
-{% extends "base.html" %}
-
-{% block title %}登录 - 工作量+1{% endblock %}
-
-{% block content %}
-<div class="fixed inset-0 flex items-center justify-center px-4 py-8 overflow-y-auto bg-gray-100">
-    <div class="max-w-md w-full bg-white rounded-xl shadow-lg p-8 my-auto">
-        <div class="text-center mb-8">
-            <h1 class="text-3xl font-bold text-blue-600">工作量+1</h1>
-            <p class="text-gray-500 mt-2">极简工作填报系统</p>
-        </div>
-
-        <form id="login-form" class="space-y-6">
-            <input type="hidden" name="redirect" id="redirect_target" value="{{ redirect_target }}">
-
-            <!-- 手机号 -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">手机号</label>
-                <input type="tel" name="mobile" id="mobile"
-                       class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                       placeholder="请输入手机号" maxlength="11" required>
-            </div>
-
-            <!-- 图形验证码 -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">图形验证码</label>
-                <div class="flex space-x-3">
-                    <input type="text" name="image_code" id="image_code"
-                           class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                           placeholder="图形验证码" maxlength="4" required>
-                    <img id="captcha-img" src="" alt="验证码" 
-                         class="h-12 rounded cursor-pointer border border-gray-200"
-                         onclick="refreshCaptcha()" title="点击刷新">
-                </div>
-            </div>
-
-            <!-- 发送短信按钮 -->
-            <button type="button" id="send-sms-btn" onclick="sendSmsCode()"
-                    class="w-full py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
-                发送短信验证码
-            </button>
-
-            <!-- 短信验证码 -->
-            <div id="sms-section" style="display: none;">
-                <label class="block text-sm font-medium text-gray-700 mb-1">短信验证码</label>
-                <input type="text" name="sms_code" id="sms_code"
-                       class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                       placeholder="6位短信验证码" maxlength="6">
-            </div>
-
-            <!-- 登录按钮 -->
-            <button type="submit" id="login-btn" style="display: none;"
-                    class="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
-                登录
-            </button>
-        </form>
-
-        <p class="mt-6 text-center text-sm text-gray-500">
-            使用山东大学统一认证登录
-        </p>
-
-        {% if debug_mode %}
-        <!-- Debug 快速登录 -->
-        <div class="mt-8 pt-6 border-t border-gray-200">
-            <p class="text-xs text-orange-500 text-center mb-3">🔧 开发模式 - 快速登录</p>
-            <div class="space-y-2 max-h-40 overflow-y-auto">
-                {% for user in all_users %}
-                <button type="button" onclick="quickLogin('{{ user.id }}')"
-                        class="w-full py-2 px-3 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-lg text-sm flex justify-between items-center transition">
-                    <span>{{ user.name }} {% if user.is_admin %}<span class="text-xs bg-orange-200 px-1.5 py-0.5 rounded">管理员</span>{% endif %}</span>
-                    <span class="text-xs text-orange-500">{{ user.phone }}</span>
-                </button>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
+{% extends "base.html" %} {% block title %}登录 - 工作量+1{% endblock %} {%
+block content %}
+<div
+  class="fixed inset-0 flex items-center justify-center px-4 py-8 overflow-y-auto bg-gray-100"
+>
+  <div class="max-w-md w-full bg-white rounded-xl shadow-lg p-8 my-auto">
+    <div class="text-center mb-8">
+      <h1 class="text-3xl font-bold text-blue-600">工作量+1</h1>
+      <p class="text-gray-500 mt-2">极简工作填报系统</p>
     </div>
-</div>
-{% endblock %}
 
-{% block extra_scripts %}
-<script>
-    // 刷新验证码
-    async function refreshCaptcha() {
-        try {
-            const response = await fetch('/auth/code', { method: 'POST' });
-            if (!response.ok) throw new Error('获取验证码失败');
-            const blob = await response.blob();
-            document.getElementById('captcha-img').src = URL.createObjectURL(blob);
-        } catch (e) {
-            showToast(e.message, 'error');
-        }
-    }
+    <form id="login-form" class="space-y-6">
+      <input
+        type="hidden"
+        name="redirect"
+        id="redirect_target"
+        value="{{ redirect_target }}"
+      />
 
-    // 发送短信验证码
-    async function sendSmsCode() {
-        const mobile = document.getElementById('mobile').value;
-        const code = document.getElementById('image_code').value;
+      <!-- 手机号 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1"
+          >手机号</label
+        >
+        <input
+          type="tel"
+          name="mobile"
+          id="mobile"
+          class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          placeholder="请输入手机号"
+          maxlength="11"
+          required
+        />
+      </div>
 
-        if (mobile.length !== 11) {
-            showToast('请输入正确的手机号', 'error');
-            return;
-        }
-        if (code.length !== 4) {
-            showToast('请输入图形验证码', 'error');
-            return;
-        }
+      <!-- 图形验证码 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1"
+          >图形验证码</label
+        >
+        <div class="flex space-x-3">
+          <input
+            type="text"
+            name="image_code"
+            id="image_code"
+            class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="图形验证码"
+            maxlength="4"
+            required
+          />
+          <img
+            id="captcha-img"
+            src=""
+            alt="验证码"
+            class="h-12 rounded cursor-pointer border border-gray-200"
+            onclick="refreshCaptcha()"
+            title="点击刷新"
+          />
+        </div>
+      </div>
 
-        const btn = document.getElementById('send-sms-btn');
-        btn.disabled = true;
-        btn.textContent = '发送中...';
+      <!-- 发送短信按钮 -->
+      <button
+        type="button"
+        id="send-sms-btn"
+        onclick="sendSmsCode()"
+        class="w-full py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+      >
+        发送短信验证码
+      </button>
 
-        try {
-            const formData = new FormData();
-            formData.append('mobile', mobile);
-            formData.append('code', code);
+      <!-- 短信验证码 -->
+      <div id="sms-section" style="display: none">
+        <label class="block text-sm font-medium text-gray-700 mb-1"
+          >短信验证码</label
+        >
+        <input
+          type="text"
+          name="sms_code"
+          id="sms_code"
+          class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          placeholder="6位短信验证码"
+          maxlength="6"
+        />
+      </div>
 
-            const response = await fetch('/auth/sms', {
-                method: 'POST',
-                body: formData
-            });
+      <!-- 登录按钮 -->
+      <button
+        type="submit"
+        id="login-btn"
+        style="display: none"
+        class="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+      >
+        登录
+      </button>
+    </form>
 
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.detail || '发送失败');
-            }
-
-            showToast('短信已发送', 'success');
-            document.getElementById('sms-section').style.display = 'block';
-            document.getElementById('login-btn').style.display = 'block';
-            btn.style.display = 'none';
-        } catch (e) {
-            showToast(e.message, 'error');
-            btn.disabled = false;
-            btn.textContent = '发送短信验证码';
-            refreshCaptcha();
-        }
-    }
-
-    // 登录表单提交
-    document.getElementById('login-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-
-        const mobile = document.getElementById('mobile').value;
-        const smsCode = document.getElementById('sms_code').value;
-
-        if (smsCode.length !== 6) {
-            showToast('请输入6位短信验证码', 'error');
-            return;
-        }
-
-        const btn = document.getElementById('login-btn');
-        btn.disabled = true;
-        btn.textContent = '登录中...';
-
-        try {
-            const formData = new FormData();
-            formData.append('mobile', mobile);
-            formData.append('sms_code', smsCode);
-            formData.append('redirect', document.getElementById('redirect_target').value || '/record');
-
-            const response = await fetch('/auth/login', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (response.redirected) {
-                window.location.href = response.url;
-                return;
-            }
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.detail || '登录失败');
-            }
-
-            window.location.href = '/record';
-        } catch (e) {
-            showToast(e.message, 'error');
-            btn.disabled = false;
-            btn.textContent = '登录';
-        }
-    });
-
-    // 页面加载时获取验证码
-    refreshCaptcha();
+    <p class="mt-6 text-center text-sm text-gray-500">
+      使用山东大学统一认证登录
+    </p>
 
     {% if debug_mode %}
-    // 快速登录
-    async function quickLogin(userId) {
-        try {
-            const response = await fetch(`/auth/debug-login/${userId}`, { method: 'POST' });
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.detail || '登录失败');
-            }
-            window.location.href = document.getElementById('redirect_target').value || '/record';
-        } catch (e) {
-            showToast(e.message, 'error');
-        }
-    }
+    <!-- Debug 快速登录 -->
+    <div class="mt-8 pt-6 border-t border-gray-200">
+      <p class="text-xs text-orange-500 text-center mb-3">
+        🔧 开发模式 - 快速登录
+      </p>
+      <div class="space-y-2 max-h-40 overflow-y-auto">
+        {% for user in all_users %}
+        <button
+          type="button"
+          onclick="quickLogin('{{ user.id }}')"
+          class="w-full py-2 px-3 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-lg text-sm flex justify-between items-center transition"
+        >
+          <span
+            >{{ user.name }} {% if user.is_admin %}<span
+              class="text-xs bg-orange-200 px-1.5 py-0.5 rounded"
+              >管理员</span
+            >{% endif %}</span
+          >
+          <span class="text-xs text-orange-500">{{ user.phone }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
     {% endif %}
+  </div>
+</div>
+{% endblock %} {% block extra_scripts %}
+<script>
+  // 刷新验证码
+  async function refreshCaptcha() {
+      try {
+          const response = await fetch('/auth/code', { method: 'POST' });
+          if (!response.ok) throw new Error('获取验证码失败');
+          const blob = await response.blob();
+          document.getElementById('captcha-img').src = URL.createObjectURL(blob);
+      } catch (e) {
+          showToast(e.message, 'error');
+      }
+  }
+
+  // 发送短信验证码
+  async function sendSmsCode() {
+      const mobile = document.getElementById('mobile').value;
+      const code = document.getElementById('image_code').value;
+
+      if (mobile.length !== 11) {
+          showToast('请输入正确的手机号', 'error');
+          return;
+      }
+      if (code.length !== 4) {
+          showToast('请输入图形验证码', 'error');
+          return;
+      }
+
+      const btn = document.getElementById('send-sms-btn');
+      btn.disabled = true;
+      btn.textContent = '发送中...';
+
+      try {
+          const formData = new FormData();
+          formData.append('mobile', mobile);
+          formData.append('code', code);
+
+          const response = await fetch('/auth/sms', {
+              method: 'POST',
+              body: formData
+          });
+
+          if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.detail || '发送失败');
+          }
+
+          showToast('短信已发送', 'success');
+          document.getElementById('sms-section').style.display = 'block';
+          document.getElementById('login-btn').style.display = 'block';
+          btn.style.display = 'none';
+      } catch (e) {
+          showToast(e.message, 'error');
+          btn.disabled = false;
+          btn.textContent = '发送短信验证码';
+          refreshCaptcha();
+      }
+  }
+
+  // 登录表单提交
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const mobile = document.getElementById('mobile').value;
+      const smsCode = document.getElementById('sms_code').value;
+
+      if (smsCode.length !== 6) {
+          showToast('请输入6位短信验证码', 'error');
+          return;
+      }
+
+      const btn = document.getElementById('login-btn');
+      btn.disabled = true;
+      btn.textContent = '登录中...';
+
+      try {
+          const formData = new FormData();
+          formData.append('mobile', mobile);
+          formData.append('sms_code', smsCode);
+          formData.append('redirect', document.getElementById('redirect_target').value || '/record');
+
+          const response = await fetch('/auth/login', {
+              method: 'POST',
+              body: formData
+          });
+
+          if (response.redirected) {
+              window.location.href = response.url;
+              return;
+          }
+
+          if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.detail || '登录失败');
+          }
+
+          window.location.href = '/record';
+      } catch (e) {
+          showToast(e.message, 'error');
+          btn.disabled = false;
+          btn.textContent = '登录';
+      }
+  });
+
+  // 页面加载时获取验证码
+  refreshCaptcha();
+
+  {% if debug_mode %}
+  // 快速登录
+  async function quickLogin(userId) {
+      try {
+          const response = await fetch(`/auth/debug-login/${userId}`, { method: 'POST' });
+          if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.detail || '登录失败');
+          }
+          window.location.href = document.getElementById('redirect_target').value || '/record';
+      } catch (e) {
+          showToast(e.message, 'error');
+      }
+  }
+  {% endif %}
 </script>
 {% endblock %}

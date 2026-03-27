@@ -6,7 +6,6 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.14.0",
-    "uvicorn[standard]>=0.32.0",
     "sqlmodel>=0.0.22",
     "jinja2>=3.1.4",
     "python-multipart>=0.0.12",
@@ -16,6 +15,7 @@ dependencies = [
     "pydantic-settings>=2.5.0",
     "fastapi>=0.135.1",
     "typer>=0.24.1",
+    "granian>=2.7.2",
 ]
 
 [project.scripts]
@@ -26,3 +26,21 @@ package = true
 
 [tool.setuptools]
 packages = ["app"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # E, W: PEP8 错误和警告
+    "W",
+    "F",   # F: Pyflakes (未使用变量等)
+    "I",   # I: isort (导入排序)
+    "SIM", # SIM: flake8-simplify (简化代码)
+    "C4",  # C4: flake8-comprehensions (优化列表推导式)
+    "UP",  # UP: pyupgrade (升级现代 Python 语法)
+]
+ignore = [
+    "E741", # 变量名过于简单(如 l, O, I)
+    "E501", # line too long
+]
+
+[tool.ruff.format]
+docstring-code-format = true

@@ -32,7 +32,9 @@ def upgrade() -> None:
         if work_record_columns:
             op.add_column(
                 "work_record",
-                sa.Column("claimed", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+                sa.Column(
+                    "claimed", sa.Boolean(), nullable=False, server_default=sa.text("0")
+                ),
             )
 
     claim_columns = _column_names("settlement_claim")
@@ -40,19 +42,34 @@ def upgrade() -> None:
         if claim_columns:
             op.add_column(
                 "settlement_claim",
-                sa.Column("paid_minutes", sa.Integer(), nullable=False, server_default=sa.text("0")),
+                sa.Column(
+                    "paid_minutes",
+                    sa.Integer(),
+                    nullable=False,
+                    server_default=sa.text("0"),
+                ),
             )
     if "volunteer_minutes" not in claim_columns:
         if claim_columns:
             op.add_column(
                 "settlement_claim",
-                sa.Column("volunteer_minutes", sa.Integer(), nullable=False, server_default=sa.text("0")),
+                sa.Column(
+                    "volunteer_minutes",
+                    sa.Integer(),
+                    nullable=False,
+                    server_default=sa.text("0"),
+                ),
             )
     if "total_minutes" not in claim_columns:
         if claim_columns:
             op.add_column(
                 "settlement_claim",
-                sa.Column("total_minutes", sa.Integer(), nullable=False, server_default=sa.text("0")),
+                sa.Column(
+                    "total_minutes",
+                    sa.Integer(),
+                    nullable=False,
+                    server_default=sa.text("0"),
+                ),
             )
 
     claim_columns = _column_names("settlement_claim")

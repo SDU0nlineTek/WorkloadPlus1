@@ -6,6 +6,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.core import create_db_and_tables, settings
@@ -29,14 +30,14 @@ app = FastAPI(
     description="极简工作填报系统",
     version="0.1.0",
     lifespan=lifespan,
-)
-
-# Session 中间件
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.secret_key,
-    session_cookie=settings.session_cookie,
-    max_age=settings.session_max_age,
+    middleware=[
+        Middleware(
+            SessionMiddleware,
+            secret_key=settings.secret_key,
+            session_cookie=settings.session_cookie,
+            max_age=settings.session_max_age,
+        )
+    ],
 )
 
 
@@ -54,7 +55,7 @@ async def assertion_error_handler(request: Request, e: AssertionError):
             raise HTTPException(401, str(e)[6:])
     elif str(e).startswith("not_admin"):
         return templates.TemplateResponse(
-            "admin/no_permission.html", {"request": request}
+            request, "admin/no_permission.html", {"request": request}
         )
     elif str(e).startswith("not_found:"):
         raise HTTPException(404, str(e)[10:])
@@ -74,12 +75,6 @@ async def root():
     from fastapi.responses import RedirectResponse
 
     return RedirectResponse(url="/login")
-
-
-@app.get("/health")
-async def health():
-    """健康检查"""
-    return {"status": "ok", "app": settings.app_name}
 
 
 app.include_router(auth_router)

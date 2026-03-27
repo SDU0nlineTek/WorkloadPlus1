@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from random import random
-from typing import Optional
 from urllib.parse import urlsplit
 from uuid import UUID, uuid7
 
@@ -24,7 +23,7 @@ router = APIRouter(tags=["认证"])
 login_sessions: dict[str, httpx.Cookies] = {}
 
 
-def _safe_redirect_target(redirect: Optional[str], default: str = "/record") -> str:
+def _safe_redirect_target(redirect: str | None, default: str = "/record") -> str:
     """只允许站内路径，避免开放重定向。"""
     if not redirect:
         return default
@@ -44,7 +43,7 @@ def clear_expired_sessions():
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(
-    request: Request, session: SessionDep, redirect: Optional[str] = Query(None)
+    request: Request, session: SessionDep, redirect: str | None = Query(None)
 ):
     """登录页面"""
     redirect_target = _safe_redirect_target(redirect)
@@ -74,7 +73,7 @@ async def login_page(
             for user in session.exec(select(User)).all()
         ]
 
-    return templates.TemplateResponse("login.html", context)
+    return templates.TemplateResponse(request, "login.html", context)
 
 
 @router.post("/auth/code")
@@ -130,7 +129,7 @@ async def do_login(
     session: SessionDep,
     mobile: str = Form(..., min_length=11, max_length=11, pattern=r"^\d+$"),
     sms_code: str = Form(..., min_length=6, max_length=6, pattern=r"^\d+$"),
-    redirect: Optional[str] = Form(None),
+    redirect: str | None = Form(None),
 ):
     """执行登录"""
     redirect_target = _safe_redirect_target(redirect)
@@ -205,7 +204,7 @@ async def logout(request: Request):
 async def switch_department(
     s: UserSession,
     dept_id: UUID = Query(...),
-    next: Optional[str] = Query(None),
+    next: str | None = Query(None),
 ):
     """切换当前部门上下文（侧边栏使用）。"""
     if not any(link.dept_id == dept_id for link in s.user.dept_links):

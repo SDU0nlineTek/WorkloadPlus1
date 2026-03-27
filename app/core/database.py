@@ -1,6 +1,5 @@
 """数据库引擎和会话管理"""
 
-from collections.abc import Generator
 from typing import Annotated
 
 from fastapi import Depends
@@ -23,7 +22,7 @@ def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
 
 
-def get_session() -> Generator[Session, None, None]:
+def get_session():
     """获取数据库会话"""
     with Session(engine) as session:
         yield session

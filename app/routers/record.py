@@ -31,13 +31,13 @@ class RecordItem(BaseModel):
     minutes: int = Field(0, ge=0, le=59)
     related_content: str | None = None
 
-
     @model_validator(mode="before")
     def validate_duration(cls, values):
         total = values.get("hours", 0) * 60 + values.get("minutes", 0)
         if not 0 < total <= 300:
             raise ValueError("单条记录时长不超过5小时")
         return values
+
 
 class BatchRecordRequest(BaseModel):
     """批量记录请求"""
@@ -115,6 +115,7 @@ def _render_claim_form(
     )
 
     return templates.TemplateResponse(
+        s.request,
         "admin/claim_form.html",
         {
             "request": s.request,
@@ -176,6 +177,7 @@ async def record_page(s: UserSession):
     recent_mins = recent_minutes % 60
 
     return templates.TemplateResponse(
+        s.request,
         "record.html",
         {
             "request": s.request,
