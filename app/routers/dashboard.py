@@ -116,7 +116,7 @@ async def timeline_page(
 
     return templates.TemplateResponse(
         s.request,
-        "timeline.html",
+        "timeline.jinja2",
         {
             "request": s.request,
             "user": s.user,

@@ -55,7 +55,7 @@ async def assertion_error_handler(request: Request, e: AssertionError):
             raise HTTPException(401, str(e)[6:])
     elif str(e).startswith("not_admin"):
         return templates.TemplateResponse(
-            request, "admin/no_permission.html", {"request": request}
+            request, "admin/no_permission.jinja2", {"request": request}
         )
     elif str(e).startswith("not_found:"):
         raise HTTPException(404, str(e)[10:])

@@ -73,7 +73,7 @@ async def login_page(
             for user in session.exec(select(User)).all()
         ]
 
-    return templates.TemplateResponse(request, "login.html", context)
+    return templates.TemplateResponse(request, "login.jinja2", context)
 
 
 @router.post("/auth/code")

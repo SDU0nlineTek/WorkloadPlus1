@@ -116,7 +116,7 @@ def _render_claim_form(
 
     return templates.TemplateResponse(
         s.request,
-        "admin/claim_form.html",
+        "admin/claim_form.jinja2",
         {
             "request": s.request,
             "period": s.period,
@@ -178,7 +178,7 @@ async def record_page(s: UserSession):
 
     return templates.TemplateResponse(
         s.request,
-        "record.html",
+        "record.jinja2",
         {
             "request": s.request,
             "user": s.user,

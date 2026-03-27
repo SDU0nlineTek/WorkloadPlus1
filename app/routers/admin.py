@@ -144,7 +144,7 @@ async def stats_page(
     filter_heatmap = build_activity_heatmap([r.created_at for r in filtered_records])
     return templates.TemplateResponse(
         s.request,
-        "admin/stats.html",
+        "admin/stats.jinja2",
         {
             "request": s.request,
             "user": s.user,
@@ -215,7 +215,7 @@ async def department_page(s: AdminSession):
     join_link = f"{str(s.request.base_url).rstrip('/')}/admin/join/{s.dept.id}"
     return templates.TemplateResponse(
         s.request,
-        "admin/department.html",
+        "admin/department.jinja2",
         {
             "request": s.request,
             "admin_depts": s.user.admin_dept_list(),
@@ -399,7 +399,7 @@ async def settlement_page(s: AdminSession):
         )
     return templates.TemplateResponse(
         s.request,
-        "admin/settlement.html",
+        "admin/settlement.jinja2",
         {
             "request": s.request,
             "admin_depts": s.user.admin_dept_list(),
@@ -594,7 +594,7 @@ async def settlement_claims(
 
     return templates.TemplateResponse(
         s.request,
-        "admin/settlement_claims.html",
+        "admin/settlement_claims.jinja2",
         {
             "request": s.request,
             "period": s.period,

@@ -1,0 +1,214 @@
+{% extends "base.jinja2" %}
+
+{% block title %}部门管理 - 工作量+1{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-lg font-bold text-gray-800 mb-3">部门管理</h3>
+        <p class="text-sm text-gray-500 mb-3">管理成员与项目可见性。仅“可见”项目会在填报时出现在项目下拉列表中。</p>
+        <h4 class="text-base font-semibold text-gray-800 mb-2">部门注册链接</h4>
+        <p class="text-sm text-gray-500 mb-3">成员登录后访问该链接即可自动加入当前部门。</p>
+        <div class="flex flex-col md:flex-row gap-3">
+            <input id="join-link" type="text" readonly value="{{ join_link }}" title="部门注册链接"
+                class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50">
+            <button type="button" onclick="copyJoinLink()"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
+                复制链接
+            </button>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-lg font-bold text-gray-800 mb-4">项目列表</h3>
+        <div class="space-y-3 md:hidden">
+            {% for p in projects %}
+            <div class="border border-gray-200 rounded-lg p-3 bg-white">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-base font-medium text-gray-800 break-words">{{ p.name }}</p>
+                        <p class="text-xs text-gray-500 mt-0.5">记录 {{ p.record_count }} 条 · 最近活跃 {{
+                            p.last_active.strftime('%Y-%m-%d') }}</p>
+                    </div>
+                    {% if p.is_visible %}
+                    <span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded whitespace-nowrap">可见</span>
+                    {% else %}
+                    <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded whitespace-nowrap">隐藏</span>
+                    {% endif %}
+                </div>
+                <form action="/admin/department/{{ current_dept_id }}/projects/{{ p.id }}/visibility" method="POST"
+                    class="mt-3">
+                    <input type="hidden" name="is_visible" value="{{ 'false' if p.is_visible else 'true' }}">
+                    <button type="submit"
+                        class="px-3 py-1.5 text-xs border rounded {% if p.is_visible %}border-amber-300 text-amber-700 hover:bg-amber-50{% else %}border-blue-300 text-blue-700 hover:bg-blue-50{% endif %}">
+                        {% if p.is_visible %}设为隐藏{% else %}设为可见{% endif %}
+                    </button>
+                </form>
+                <form action="/admin/department/{{ current_dept_id }}/projects/{{ p.id }}/rename" method="POST"
+                    class="mt-2 flex items-center gap-2">
+                    <input type="text" name="new_name" value="{{ p.name }}"
+                        class="flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs" placeholder="新项目名" required>
+                    <button type="submit"
+                        class="px-2.5 py-1.5 text-xs border border-indigo-300 text-indigo-700 rounded hover:bg-indigo-50">改名</button>
+                </form>
+            </div>
+            {% else %}
+            <div class="px-4 py-8 text-center text-gray-400">暂无项目</div>
+            {% endfor %}
+        </div>
+
+        <div class="hidden md:block overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-gray-600">项目名</th>
+                        <th class="px-4 py-2 text-center text-gray-600">记录数</th>
+                        <th class="px-4 py-2 text-left text-gray-600">最近活跃</th>
+                        <th class="px-4 py-2 text-center text-gray-600">可见性</th>
+                        <th class="px-4 py-2 text-center text-gray-600">操作</th>
+                        <th class="px-4 py-2 text-left text-gray-600">重命名</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for p in projects %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3">{{ p.name }}</td>
+                        <td class="px-4 py-3 text-center text-gray-600">{{ p.record_count }}</td>
+                        <td class="px-4 py-3 text-gray-500">{{ p.last_active.strftime('%Y-%m-%d') }}</td>
+                        <td class="px-4 py-3 text-center">
+                            {% if p.is_visible %}
+                            <span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">可见</span>
+                            {% else %}
+                            <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">隐藏</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-center">
+                            <form action="/admin/department/{{ current_dept_id }}/projects/{{ p.id }}/visibility"
+                                method="POST">
+                                <input type="hidden" name="is_visible"
+                                    value="{{ 'false' if p.is_visible else 'true' }}">
+                                <button type="submit"
+                                    class="px-3 py-1 text-xs border rounded {% if p.is_visible %}border-amber-300 text-amber-700 hover:bg-amber-50{% else %}border-blue-300 text-blue-700 hover:bg-blue-50{% endif %}">
+                                    {% if p.is_visible %}设为隐藏{% else %}设为可见{% endif %}
+                                </button>
+                            </form>
+                        </td>
+                        <td class="px-4 py-3">
+                            <form action="/admin/department/{{ current_dept_id }}/projects/{{ p.id }}/rename"
+                                method="POST" class="flex items-center gap-2">
+                                <input type="text" name="new_name" value="{{ p.name }}"
+                                    class="w-full min-w-[180px] px-2 py-1 border border-gray-300 rounded text-xs"
+                                    placeholder="新项目名" required>
+                                <button type="submit"
+                                    class="px-3 py-1 text-xs border border-indigo-300 text-indigo-700 rounded hover:bg-indigo-50">改名</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="px-4 py-8 text-center text-gray-400">暂无项目</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="text-lg font-bold text-gray-800 mb-4">成员列表</h3>
+
+        <div class="space-y-3 md:hidden">
+            {% for m in members %}
+            <div class="border border-gray-200 rounded-lg p-3 bg-white">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-base font-medium text-gray-800 break-words">{{ m.name }}</p>
+                        <p class="text-xs text-gray-500 mt-0.5">学号：{{ m.sduid }}</p>
+                    </div>
+                    {% if m.is_admin %}
+                    <span class="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded whitespace-nowrap">管理员</span>
+                    {% else %}
+                    <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded whitespace-nowrap">成员</span>
+                    {% endif %}
+                </div>
+
+                <div class="mt-3 flex items-center justify-between gap-3">
+                    <p class="text-sm text-blue-600 font-medium">累计 {{ '%.1f'|format(m.total_hours) }} 小时</p>
+                    {% if m.id != current_user_id and not m.is_admin %}
+                    <form action="/admin/department/{{ current_dept_id }}/{{ m.id }}/remove" method="POST"
+                        onsubmit="return confirm('确定移除该成员吗？')">
+                        <button type="submit"
+                            class="px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">
+                            移除
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="px-4 py-8 text-center text-gray-400">暂无成员</div>
+            {% endfor %}
+        </div>
+
+        <div class="hidden md:block overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-gray-600">姓名</th>
+                        <th class="px-4 py-2 text-left text-gray-600">学号</th>
+                        <th class="px-4 py-2 text-right text-gray-600">累计工时</th>
+                        <th class="px-4 py-2 text-center text-gray-600">角色</th>
+                        <th class="px-4 py-2 text-center text-gray-600">操作</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for m in members %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3">{{ m.name }}</td>
+                        <td class="px-4 py-3 text-gray-500">{{ m.sduid }}</td>
+                        <td class="px-4 py-3 text-right text-blue-600 font-medium">{{ '%.1f'|format(m.total_hours) }} 小时
+                        </td>
+                        <td class="px-4 py-3 text-center">
+                            {% if m.is_admin %}
+                            <span class="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded">管理员</span>
+                            {% else %}
+                            <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">成员</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-center">
+                            {% if m.id != current_user_id and not m.is_admin %}
+                            <form action="/admin/department/{{ current_dept_id }}/{{ m.id }}/remove" method="POST"
+                                onsubmit="return confirm('确定移除该成员吗？')">
+                                <button type="submit"
+                                    class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">
+                                    移除
+                                </button>
+                            </form>
+                            {% elif m.is_admin %}
+                            <span class="text-xs text-gray-400">管理员不可移除</span>
+                            {% else %}
+                            <span class="text-xs text-gray-400">当前用户</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无成员</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    async function copyJoinLink() {
+        const input = document.getElementById('join-link');
+        await navigator.clipboard.writeText(input.value);
+        showToast('链接已复制', 'success');
+    }
+</script>
+{% endblock %}
