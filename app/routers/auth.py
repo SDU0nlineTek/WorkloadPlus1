@@ -200,6 +200,30 @@ async def logout(request: Request):
     return RedirectResponse(url="/login", status_code=302)
 
 
+@router.get("/no-department", response_class=HTMLResponse)
+async def no_department_page(
+    request: Request,
+    session: SessionDep,
+):
+    """未加入部门提示页面"""
+    # 检查是否已登录
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return RedirectResponse(url="/login", status_code=302)
+
+    # 检查用户是否已有部门
+    from uuid import UUID
+
+    user = session.get(User, UUID(user_id))
+    if user and user.dept_links:
+        # 已有部门，跳转到填报页
+        return RedirectResponse(url="/record", status_code=302)
+
+    return templates.TemplateResponse(
+        request, "no_department.jinja2", {"request": request}
+    )
+
+
 @router.get("/switch-dept")
 async def switch_department(
     s: UserSession,

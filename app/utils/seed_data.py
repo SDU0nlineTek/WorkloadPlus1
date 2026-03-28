@@ -81,8 +81,8 @@ def create_test_data():
         session.add(link6)
 
         # 孙八 - 新媒体中心成员
-        link7 = UserDeptLink(user_id=users[5].id, dept_id=depts[0].id, is_admin=False)
-        session.add(link7)
+        # link7 = UserDeptLink(user_id=users[5].id, dept_id=depts[0].id, is_admin=False)
+        # session.add(link7)
 
         session.commit()
         print("✓ 创建了用户-部门关联")

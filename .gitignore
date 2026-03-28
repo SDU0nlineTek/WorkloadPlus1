@@ -13,3 +13,6 @@ wheels/
 *.db*
 .env
 temp/
+
+.claude/
+.vscode/

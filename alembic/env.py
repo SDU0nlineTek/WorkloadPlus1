@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from logging.config import fileConfig
 
-from alembic import context  # type: ignore[import-not-found]
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
-from app.core import settings
-
 # Import models so SQLModel metadata is fully populated.
 import app.models  # noqa: F401
+from alembic import context
+from app.core import settings
 
 config = context.config
 

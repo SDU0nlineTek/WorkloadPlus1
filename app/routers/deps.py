@@ -113,6 +113,15 @@ async def get_user_session(s: UseridSession) -> UserSessionDep:
 UserSession = Annotated[UserSessionDep, Depends(get_user_session)]
 
 
+async def get_member_session(s: UserSession) -> UserSessionDep:
+    """获取当前用户（必需），如果用户没有加入任何部门则抛出异常"""
+    assert s.request.session.get("dept_options", []), "no_department"
+    return s
+
+
+MemberSession = Annotated[UserSessionDep, Depends(get_member_session)]
+
+
 async def get_admin_session(s: UserSession) -> AdminSessionDep:
     """获取当前管理员和部门"""
     assert s.request.session.get("current_dept_is_admin"), "not_admin"

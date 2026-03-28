@@ -10,7 +10,10 @@ from sqlmodel import col, select
 from app.models import (
     WorkRecord,
 )
-from app.routers.deps import UseridSession, UserSession, templates
+from app.routers.deps import (
+    MemberSession,
+    templates,
+)
 from app.utils.activity_heatmap import build_activity_heatmap
 
 router = APIRouter(tags=["时间线"])
@@ -18,7 +21,7 @@ router = APIRouter(tags=["时间线"])
 
 @router.get("/timeline", response_class=HTMLResponse)
 async def timeline_page(
-    s: UserSession,
+    s: MemberSession,
     month: str | None = Query(None),  # 格式: 2024-01
     dept_id: UUID | None = Query(None),
     day: str | None = Query(None),  # 格式: 2024-01-31
@@ -133,12 +136,12 @@ async def timeline_page(
 
 
 @router.get("/timeline/filter", response_class=HTMLResponse)
-async def timeline_filter(s: UseridSession, month: str | None = Query(None)):
+async def timeline_filter(s: MemberSession, month: str | None = Query(None)):
     """HTMX 筛选端点"""
     # 构建查询
     query = (
         select(WorkRecord)
-        .where(WorkRecord.user_id == s.user_id)
+        .where(WorkRecord.user_id == s.user.id)
         .where(WorkRecord.dept_id == UUID(s.request.session.get("current_dept_id")))
     )
     if month:

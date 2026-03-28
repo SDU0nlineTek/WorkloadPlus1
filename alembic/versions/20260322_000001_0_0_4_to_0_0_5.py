@@ -7,9 +7,9 @@ Create Date: 2026-03-22 00:00:01
 
 from __future__ import annotations
 
-from alembic import op  # type: ignore[import-not-found]
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260322_000001"
@@ -28,49 +28,45 @@ def _column_names(table_name: str) -> set[str]:
 
 def upgrade() -> None:
     work_record_columns = _column_names("work_record")
-    if "claimed" not in work_record_columns:
-        if work_record_columns:
-            op.add_column(
-                "work_record",
-                sa.Column(
-                    "claimed", sa.Boolean(), nullable=False, server_default=sa.text("0")
-                ),
-            )
+    if work_record_columns and "claimed" not in work_record_columns:
+        op.add_column(
+            "work_record",
+            sa.Column(
+                "claimed", sa.Boolean(), nullable=False, server_default=sa.text("0")
+            ),
+        )
 
     claim_columns = _column_names("settlement_claim")
-    if "paid_minutes" not in claim_columns:
-        if claim_columns:
-            op.add_column(
-                "settlement_claim",
-                sa.Column(
-                    "paid_minutes",
-                    sa.Integer(),
-                    nullable=False,
-                    server_default=sa.text("0"),
-                ),
-            )
-    if "volunteer_minutes" not in claim_columns:
-        if claim_columns:
-            op.add_column(
-                "settlement_claim",
-                sa.Column(
-                    "volunteer_minutes",
-                    sa.Integer(),
-                    nullable=False,
-                    server_default=sa.text("0"),
-                ),
-            )
-    if "total_minutes" not in claim_columns:
-        if claim_columns:
-            op.add_column(
-                "settlement_claim",
-                sa.Column(
-                    "total_minutes",
-                    sa.Integer(),
-                    nullable=False,
-                    server_default=sa.text("0"),
-                ),
-            )
+    if claim_columns and "paid_minutes" not in claim_columns:
+        op.add_column(
+            "settlement_claim",
+            sa.Column(
+                "paid_minutes",
+                sa.Integer(),
+                nullable=False,
+                server_default=sa.text("0"),
+            ),
+        )
+    if claim_columns and "volunteer_minutes" not in claim_columns:
+        op.add_column(
+            "settlement_claim",
+            sa.Column(
+                "volunteer_minutes",
+                sa.Integer(),
+                nullable=False,
+                server_default=sa.text("0"),
+            ),
+        )
+    if claim_columns and "total_minutes" not in claim_columns:
+        op.add_column(
+            "settlement_claim",
+            sa.Column(
+                "total_minutes",
+                sa.Integer(),
+                nullable=False,
+                server_default=sa.text("0"),
+            ),
+        )
 
     claim_columns = _column_names("settlement_claim")
     if {"paid_hours", "volunteer_hours", "total_hours"}.issubset(claim_columns):

@@ -1,0 +1,19 @@
+{% extends "base.jinja2" %}
+
+{% block title %}未加入部门 - 工作量+1{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto text-center py-20">
+    <div class="text-6xl mb-4">🏢</div>
+    <h2 class="text-2xl font-bold text-gray-800 mb-4">尚未加入部门</h2>
+    <p class="text-gray-500 mb-6">您当前还未加入任何部门，请联系管理员将您添加到部门中</p>
+    <div class="space-y-3">
+        <a href="mailto:SDU0nlineTek@hotmail.com" class="block w-full px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+            联系管理员
+        </a>
+        <a href="/logout" class="block w-full px-6 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition">
+            退出登录
+        </a>
+    </div>
+</div>
+{% endblock %}

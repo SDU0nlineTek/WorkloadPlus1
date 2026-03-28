@@ -9,6 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from sqlalchemy.orm import joinedload
 from sqlmodel import col, desc, func, select
 
 from app.models import (
@@ -486,6 +487,7 @@ async def settlement_claims(
     s: PeriodAdminSession,
     saved: bool = Query(False),
     user_id: UUID | None = Query(None),
+    project_id: UUID | None = Query(None),
 ):
     """查看结算周期申报情况"""
     period_records = s.db.exec(
@@ -573,24 +575,46 @@ async def settlement_claims(
             }
         )
 
+    # 只保留已申报的成员
+    claimed_members = [item for item in member_data if item["claim"]]
+
+    # 获取选中的项目信息
+    selected_project = None
+    if project_id:
+        selected_project = s.db.get(Project, project_id)
+
     selected_member_detail = None
     selected_member_records: list[WorkRecord] = []
+
+    # 构建基础查询
+    base_query = (
+        select(WorkRecord)
+        .join(Project, col(WorkRecord.project_id) == Project.id)
+        .options(joinedload(WorkRecord.user))  # type: ignore[arg-type]
+        .where(WorkRecord.dept_id == s.period.dept_id)
+        .where(WorkRecord.created_at >= s.period.start_date)
+        .where(WorkRecord.created_at <= s.period.end_date)
+    )
+
+    # 只查询已申报成员的记录
+    claimed_user_ids = [item["user"].id for item in claimed_members]
+    if claimed_user_ids:
+        base_query = base_query.where(col(WorkRecord.user_id).in_(claimed_user_ids))
+
+    # 按用户筛选
     if user_id:
         selected_member_detail = next(
             (item for item in member_data if item["user"].id == user_id), None
         )
-        if selected_member_detail:
-            selected_member_records = list(
-                s.db.exec(
-                    select(WorkRecord)
-                    .join(Project, col(WorkRecord.project_id) == Project.id)
-                    .where(WorkRecord.user_id == user_id)
-                    .where(WorkRecord.dept_id == s.period.dept_id)
-                    .where(WorkRecord.created_at >= s.period.start_date)
-                    .where(WorkRecord.created_at <= s.period.end_date)
-                    .order_by(col(WorkRecord.created_at).desc())
-                ).all()
-            )
+        base_query = base_query.where(WorkRecord.user_id == user_id)
+
+    # 按项目筛选
+    if project_id:
+        base_query = base_query.where(WorkRecord.project_id == project_id)
+
+    selected_member_records = list(
+        s.db.exec(base_query.order_by(col(WorkRecord.created_at).desc())).all()
+    )
 
     return templates.TemplateResponse(
         s.request,
@@ -602,6 +626,8 @@ async def settlement_claims(
             "selected_user_id": user_id,
             "selected_member_detail": selected_member_detail,
             "selected_member_records": selected_member_records,
+            "selected_project_id": project_id,
+            "selected_project": selected_project,
             "project_summary_rows": project_summary_rows,
             "project_status_options": [item.value for item in PROJECT_STATUS_OPTIONS],
             "saved": saved,

@@ -16,7 +16,13 @@ from app.models import (
     UserDeptLink,
     WorkRecord,
 )
-from app.routers.deps import PeriodUserSession, UseridSession, UserSession, templates
+from app.routers.deps import (
+    MemberSession,
+    PeriodUserSession,
+    UseridSession,
+    UserSession,
+    templates,
+)
 
 router = APIRouter(tags=["工作记录"])
 
@@ -134,7 +140,7 @@ def _render_claim_form(
 
 
 @router.get("/record", response_class=HTMLResponse)
-async def record_page(s: UserSession):
+async def record_page(s: MemberSession):
     """填报主页面"""
     dept_id = None
     claim_entries = []
