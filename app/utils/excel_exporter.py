@@ -6,6 +6,7 @@ from uuid import UUID
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from sqlmodel import Session, col, select
 
 from app.core import settings
@@ -60,46 +61,6 @@ def create_export_workbook(
         bottom=Side(style="thin"),
     )
 
-    def merge_adjacent_same_values(
-        worksheet,
-        column_index: int,
-        start_row: int,
-        end_row: int,
-    ) -> None:
-        """Merge adjacent identical values in one column within a row range."""
-        if end_row <= start_row:
-            return
-
-        merge_start = start_row
-        prev_value = worksheet.cell(row=start_row, column=column_index).value
-
-        for r in range(start_row + 1, end_row + 1):
-            current_value = worksheet.cell(row=r, column=column_index).value
-            if current_value != prev_value:
-                if merge_start < r - 1 and prev_value not in (None, "", "-"):
-                    worksheet.merge_cells(
-                        start_row=merge_start,
-                        start_column=column_index,
-                        end_row=r - 1,
-                        end_column=column_index,
-                    )
-                    worksheet.cell(
-                        row=merge_start, column=column_index
-                    ).alignment = header_alignment
-                merge_start = r
-                prev_value = current_value
-
-        if merge_start < end_row and prev_value not in (None, "", "-"):
-            worksheet.merge_cells(
-                start_row=merge_start,
-                start_column=column_index,
-                end_row=end_row,
-                end_column=column_index,
-            )
-            worksheet.cell(
-                row=merge_start, column=column_index
-            ).alignment = header_alignment
-
     # 如果提供了结算周期ID，获取日期范围
     if period_id:
         period = session.get(SettlementPeriod, period_id)
@@ -115,15 +76,11 @@ def create_export_workbook(
     # 表头
     headers1 = [
         "姓名",
-        "学号",
         "项目",
         "工作时间",
         "工作内容",
         "详细信息",
         "时长(h)",
-        "总时长(h)",
-        "工资时长(h)",
-        "志愿时长(h)",
     ]
     for c, header in enumerate(headers1, 1):
         cell = ws1.cell(row=1, column=c, value=header)
@@ -140,10 +97,8 @@ def create_export_workbook(
         member_links = [link for link in member_links if link.user_id == user_id]
 
     row = 2
-    user_row_blocks: list[tuple[int, int]] = []
     for link in member_links:
         user = link.user
-        user_start_row = row
 
         # 构建工作记录查询
         record_query = (
@@ -163,101 +118,41 @@ def create_export_workbook(
             record_query.order_by(col(WorkRecord.created_at).asc())
         ).all()
 
-        # 获取申报信息（仅按结算周期导出时有值）
-        paid_hours = 0.0
-        volunteer_hours = 0.0
+        # 过滤时长为零的记录
+        records = [r for r in records if r.duration_minutes > 0]
 
-        if period_id:
-            claim = session.exec(
-                select(SettlementClaim)
-                .where(SettlementClaim.period_id == period_id)
-                .where(SettlementClaim.user_id == user.id)
-            ).first()
-            if claim:
-                paid_hours = claim.paid_hours
-                volunteer_hours = claim.volunteer_hours
+        if not records:
+            continue
 
         # 写入明细（每条记录一行）
-        if records:
-            for r in records:
-                ws1.cell(row=row, column=1, value=user.name).border = thin_border
-                ws1.cell(row=row, column=2, value=user.sduid).border = thin_border
-                ws1.cell(row=row, column=3, value=r.project.name).border = thin_border
-                ws1.cell(
-                    row=row, column=4, value=r.created_at.strftime("%Y-%m-%d %H:%M")
-                ).border = thin_border
-                ws1.cell(row=row, column=5, value=r.description).border = thin_border
-                ws1.cell(
-                    row=row, column=6, value=r.related_content or "-"
-                ).border = thin_border
-                ws1.cell(
-                    row=row, column=7, value=round(r.duration_minutes / 60, 2)
-                ).border = thin_border
-                ws1.cell(row=row, column=8, value=None).border = thin_border
-                ws1.cell(
-                    row=row, column=9, value=round(paid_hours, 2)
-                ).border = thin_border
-                ws1.cell(
-                    row=row, column=10, value=round(volunteer_hours, 2)
-                ).border = thin_border
-                row += 1
-        else:
-            # 没有明细时保留人员汇总行
+        for r in records:
             ws1.cell(row=row, column=1, value=user.name).border = thin_border
-            ws1.cell(row=row, column=2, value=user.sduid).border = thin_border
-            ws1.cell(row=row, column=3, value="-").border = thin_border
-            ws1.cell(row=row, column=4, value="-").border = thin_border
-            ws1.cell(row=row, column=5, value="-").border = thin_border
-            ws1.cell(row=row, column=6, value="-").border = thin_border
-            ws1.cell(row=row, column=7, value=0).border = thin_border
-            ws1.cell(row=row, column=8, value=None).border = thin_border
-            ws1.cell(row=row, column=9, value=round(paid_hours, 2)).border = thin_border
+            ws1.cell(row=row, column=2, value=r.project.name).border = thin_border
             ws1.cell(
-                row=row, column=10, value=round(volunteer_hours, 2)
+                row=row, column=3, value=r.created_at.strftime("%Y-%m-%d %H:%M")
+            ).border = thin_border
+            ws1.cell(row=row, column=4, value=r.description).border = thin_border
+            ws1.cell(
+                row=row, column=5, value=r.related_content or "-"
+            ).border = thin_border
+            ws1.cell(
+                row=row, column=6, value=round(r.duration_minutes / 60, 2)
             ).border = thin_border
             row += 1
 
-        user_end_row = row - 1
-        user_row_blocks.append((user_start_row, user_end_row))
-
-        total_formula = f"=SUM($G${user_start_row}:$G${user_end_row})"
-        for r in range(user_start_row, user_end_row + 1):
-            ws1.cell(row=r, column=8, value=total_formula).border = thin_border
-
     sheet1_last_row = row - 1
 
-    # 小时列与申报列统一数值格式
+    # 小时列统一数值格式
     for r in range(2, sheet1_last_row + 1):
-        ws1.cell(row=r, column=7).number_format = "0.00"
-        ws1.cell(row=r, column=8).number_format = "0.00"
-        ws1.cell(row=r, column=9).number_format = "0.00"
-        ws1.cell(row=r, column=10).number_format = "0.00"
-
-    # 成员维度字段按成员分块合并，项目列也仅在成员分块内合并。
-    for start_row, end_row in user_row_blocks:
-        merge_adjacent_same_values(ws1, 3, start_row, end_row)
-        if start_row >= end_row:
-            continue
-        for col_idx in (1, 2, 8, 9, 10):
-            ws1.merge_cells(
-                start_row=start_row,
-                start_column=col_idx,
-                end_row=end_row,
-                end_column=col_idx,
-            )
-            ws1.cell(row=start_row, column=col_idx).alignment = header_alignment
+        ws1.cell(row=r, column=6).number_format = "0.00"
 
     # 调整列宽
     ws1.column_dimensions["A"].width = 12
-    ws1.column_dimensions["B"].width = 14
-    ws1.column_dimensions["C"].width = 16
-    ws1.column_dimensions["D"].width = 18
-    ws1.column_dimensions["E"].width = 36
-    ws1.column_dimensions["F"].width = 28
-    ws1.column_dimensions["G"].width = 10
-    ws1.column_dimensions["H"].width = 10
-    ws1.column_dimensions["I"].width = 12
-    ws1.column_dimensions["J"].width = 12
+    ws1.column_dimensions["B"].width = 16
+    ws1.column_dimensions["C"].width = 18
+    ws1.column_dimensions["D"].width = 36
+    ws1.column_dimensions["E"].width = 28
+    ws1.column_dimensions["F"].width = 10
 
     # ==================== Sheet 2: 项目 ====================
     ws2 = wb.create_sheet(title="项目")
@@ -270,7 +165,6 @@ def create_export_workbook(
         "工作内容",
         "详细信息",
         "时长(h)",
-        "总时长(h)",
     ]
     for c, header in enumerate(headers2, 1):
         cell = ws2.cell(row=1, column=c, value=header)
@@ -285,9 +179,7 @@ def create_export_workbook(
         projects = [p for p in projects if p.id == project_id]
 
     row = 2
-    project_row_blocks: list[tuple[int, int]] = []
     for project in projects:
-        project_start_row = row
         # 构建查询
         record_query = select(WorkRecord).where(WorkRecord.project_id == project.id)
 
@@ -300,10 +192,13 @@ def create_export_workbook(
 
         records = session.exec(record_query).all()
 
+        # 过滤时长为零的记录
+        records = [r for r in records if r.duration_minutes > 0]
+
         if not records:
             continue
 
-        # 每条记录一行，并用公式计算项目总时长
+        # 每条记录一行
         for r in records:
             ws2.cell(row=row, column=1, value=project.name).border = thin_border
             ws2.cell(row=row, column=2, value=r.user.name).border = thin_border
@@ -317,37 +212,12 @@ def create_export_workbook(
             ws2.cell(
                 row=row, column=6, value=round(r.duration_minutes / 60, 2)
             ).border = thin_border
-            ws2.cell(row=row, column=7, value=None).border = thin_border
             row += 1
-
-        project_end_row = row - 1
-        project_row_blocks.append((project_start_row, project_end_row))
-
-        total_formula = f"=SUM($F${project_start_row}:$F${project_end_row})"
-        for r in range(project_start_row, project_end_row + 1):
-            ws2.cell(row=r, column=7, value=total_formula).border = thin_border
 
     sheet2_last_row = row - 1
 
     for r in range(2, sheet2_last_row + 1):
         ws2.cell(row=r, column=6).number_format = "0.00"
-        ws2.cell(row=r, column=7).number_format = "0.00"
-
-    # 姓名按相邻相同值合并
-    merge_adjacent_same_values(ws2, 2, 2, sheet2_last_row)
-
-    # 项目维度字段按项目分块合并
-    for start_row, end_row in project_row_blocks:
-        if start_row >= end_row:
-            continue
-        for col_idx in (1, 7):
-            ws2.merge_cells(
-                start_row=start_row,
-                start_column=col_idx,
-                end_row=end_row,
-                end_column=col_idx,
-            )
-            ws2.cell(row=start_row, column=col_idx).alignment = header_alignment
 
     # 调整列宽
     ws2.column_dimensions["A"].width = 18
@@ -356,27 +226,10 @@ def create_export_workbook(
     ws2.column_dimensions["D"].width = 36
     ws2.column_dimensions["E"].width = 28
     ws2.column_dimensions["F"].width = 10
-    ws2.column_dimensions["G"].width = 12
 
     # ==================== Sheet 3: 统计 ====================
     ws3 = wb.create_sheet(title="统计")
 
-    # 项目统计块
-    ws3.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4)
-    ws3.cell(row=1, column=1, value="项目统计").font = Font(bold=True, size=13)
-    ws3.cell(row=1, column=1).alignment = Alignment(
-        horizontal="left", vertical="center"
-    )
-
-    project_headers = ["项目名", "完工状态", "项目总结", "时长(h)"]
-    for c, header in enumerate(project_headers, 1):
-        cell = ws3.cell(row=2, column=c, value=header)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = header_alignment
-        cell.border = thin_border
-
-    project_rows_start = 3
     stats_project_query = select(WorkRecord).where(WorkRecord.dept_id == dept_id)
     if start_date:
         stats_project_query = stats_project_query.where(
@@ -418,112 +271,131 @@ def create_export_workbook(
         ).all()
         summary_by_project_id = {item.project_id: item for item in period_summaries}
 
-    project_row = project_rows_start
-    for project in stats_projects:
-        summary_row = summary_by_project_id.get(project.id)
-        ws3.cell(row=project_row, column=1, value=project.name).border = thin_border
-        ws3.cell(
-            row=project_row,
-            column=2,
-            value=summary_row.status if summary_row else "-",
-        ).border = thin_border
-        ws3.cell(
-            row=project_row,
-            column=3,
-            value=summary_row.summary if summary_row else "-",
-        ).border = thin_border
-        ws3.cell(
-            row=project_row,
-            column=4,
-            value=(f"=IFERROR(SUMIFS('项目'!$F:$F,'项目'!$A:$A,$A{project_row}),0)"),
-        ).border = thin_border
-        ws3.cell(row=project_row, column=4).number_format = "0.00"
-        project_row += 1
-
-    if project_row == project_rows_start:
-        for c in range(1, 5):
-            ws3.cell(row=project_row, column=c, value="-").border = thin_border
-        project_row += 1
-
-    # 个人统计块（右侧并列）
-    people_title_row = 1
-    people_start_col = 6
-    ws3.merge_cells(
-        start_row=people_title_row,
-        start_column=people_start_col,
-        end_row=people_title_row,
-        end_column=people_start_col + 4,
-    )
-    ws3.cell(
-        row=people_title_row, column=people_start_col, value="个人统计"
-    ).font = Font(bold=True, size=13)
-    ws3.cell(row=people_title_row, column=people_start_col).alignment = Alignment(
-        horizontal="left", vertical="center"
-    )
-
-    people_header_row = 2
-    people_headers = ["姓名", "学号", "总时长(h)", "工资时长(h)", "志愿时长(h)"]
-    for offset, header in enumerate(people_headers):
-        cell = ws3.cell(
-            row=people_header_row, column=people_start_col + offset, value=header
+    member_project_hours: dict[tuple[UUID, UUID], float] = {}
+    for record in stats_records:
+        key = (record.user_id, record.project_id)
+        member_project_hours[key] = member_project_hours.get(key, 0.0) + (
+            record.duration_minutes / 60
         )
+
+    claim_by_user: dict[UUID, tuple[float, float]] = {}
+    if period_id:
+        claims = session.exec(
+            select(SettlementClaim).where(SettlementClaim.period_id == period_id)
+        ).all()
+        for claim in claims:
+            claim_by_user[claim.user_id] = (claim.volunteer_hours, claim.paid_hours)
+
+    num_projects = len(stats_projects)
+    col_name = 1
+    col_sduid = 2
+    col_first_project = 3
+    col_volunteer = col_first_project + num_projects
+    col_paid = col_volunteer + 1
+    col_total = col_paid + 1
+
+    # 表头行
+    header_row = 1
+    headers3 = ["姓名", "学号"]
+    for project in stats_projects:
+        headers3.append(project.name)
+    headers3.extend(["志愿时长", "工资时长", "总时长(h)"])
+
+    for c, header in enumerate(headers3, 1):
+        cell = ws3.cell(row=header_row, column=c, value=header)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_alignment
         cell.border = thin_border
 
-    people_row = 3
+    row = 2
     for link in member_links:
-        ws3.cell(
-            row=people_row, column=people_start_col, value=link.user.name
-        ).border = thin_border
-        ws3.cell(
-            row=people_row, column=people_start_col + 1, value=link.user.sduid
-        ).border = thin_border
+        user = link.user
 
-        ws3.cell(
-            row=people_row,
-            column=people_start_col + 2,
-            value=(
-                f"=IFERROR(SUMIFS('个人'!$H:$H,'个人'!$A:$A,$F{people_row},'个人'!$B:$B,$G{people_row}),0)"
-            ),
-        ).border = thin_border
-        ws3.cell(
-            row=people_row,
-            column=people_start_col + 3,
-            value=(
-                f"=IFERROR(SUMIFS('个人'!$I:$I,'个人'!$A:$A,$F{people_row},'个人'!$B:$B,$G{people_row}),0)"
-            ),
-        ).border = thin_border
-        ws3.cell(
-            row=people_row,
-            column=people_start_col + 4,
-            value=(
-                f"=IFERROR(SUMIFS('个人'!$J:$J,'个人'!$A:$A,$F{people_row},'个人'!$B:$B,$G{people_row}),0)"
-            ),
-        ).border = thin_border
+        row_total = 0.0
+        for pi, project in enumerate(stats_projects):
+            hours = member_project_hours.get((user.id, project.id), 0.0)
+            row_total += hours
 
-        ws3.cell(row=people_row, column=people_start_col + 2).number_format = "0.00"
-        ws3.cell(row=people_row, column=people_start_col + 3).number_format = "0.00"
-        ws3.cell(row=people_row, column=people_start_col + 4).number_format = "0.00"
-        people_row += 1
+        volunteer_hours, paid_hours = claim_by_user.get(user.id, (0.0, 0.0))
 
-    if people_row == 3:
-        for offset in range(5):
+        # 跳过时长为零的人
+        if row_total == 0 and volunteer_hours == 0 and paid_hours == 0:
+            continue
+
+        ws3.cell(row=row, column=col_name, value=user.name).border = thin_border
+        ws3.cell(row=row, column=col_sduid, value=user.sduid).border = thin_border
+
+        for pi, project in enumerate(stats_projects):
+            hours = member_project_hours.get((user.id, project.id), 0.0)
             ws3.cell(
-                row=people_row, column=people_start_col + offset, value="-"
+                row=row, column=col_first_project + pi, value=round(hours, 2)
+            ).border = thin_border
+            ws3.cell(row=row, column=col_first_project + pi).number_format = "0.00"
+
+        ws3.cell(
+            row=row, column=col_volunteer, value=round(volunteer_hours, 2)
+        ).border = thin_border
+        ws3.cell(row=row, column=col_volunteer).number_format = "0.00"
+        ws3.cell(
+            row=row, column=col_paid, value=round(paid_hours, 2)
+        ).border = thin_border
+        ws3.cell(row=row, column=col_paid).number_format = "0.00"
+        ws3.cell(
+            row=row, column=col_total, value=round(row_total, 2)
+        ).border = thin_border
+        ws3.cell(row=row, column=col_total).number_format = "0.00"
+        row += 1
+
+    total_row = row
+    ws3.cell(row=total_row, column=col_sduid, value="合计").border = thin_border
+    ws3.cell(row=total_row, column=col_sduid).font = Font(bold=True)
+
+    for pi in range(num_projects):
+        cl = get_column_letter(col_first_project + pi)
+        ws3.cell(
+            row=total_row,
+            column=col_first_project + pi,
+            value=f"=SUM({cl}{header_row + 1}:{cl}{total_row - 1})",
+        ).border = thin_border
+        ws3.cell(row=total_row, column=col_first_project + pi).number_format = "0.00"
+        ws3.cell(row=total_row, column=col_first_project + pi).font = Font(bold=True)
+
+    for col_idx in (col_volunteer, col_paid, col_total):
+        cl = get_column_letter(col_idx)
+        ws3.cell(
+            row=total_row,
+            column=col_idx,
+            value=f"=SUM({cl}{header_row + 1}:{cl}{total_row - 1})",
+        ).border = thin_border
+        ws3.cell(row=total_row, column=col_idx).number_format = "0.00"
+        ws3.cell(row=total_row, column=col_idx).font = Font(bold=True)
+
+    # 项目属性行（表格下方）
+    for label, getter in [
+        ("完工状态", lambda p: summary_by_project_id.get(p.id)),
+        ("项目总结", lambda p: summary_by_project_id.get(p.id)),
+    ]:
+        attr_row = total_row + 1 if label == "完工状态" else total_row + 2
+        ws3.cell(row=attr_row, column=col_sduid, value=label).border = thin_border
+        ws3.cell(row=attr_row, column=col_sduid).font = Font(bold=True)
+        for pi, project in enumerate(stats_projects):
+            summary_row = getter(project)
+            if label == "完工状态":
+                val = summary_row.status if summary_row else "-"
+            else:
+                val = summary_row.summary if summary_row else "-"
+            ws3.cell(
+                row=attr_row, column=col_first_project + pi, value=val
             ).border = thin_border
 
-    ws3.column_dimensions["A"].width = 18
-    ws3.column_dimensions["B"].width = 12
-    ws3.column_dimensions["C"].width = 46
-    ws3.column_dimensions["D"].width = 12
-    ws3.column_dimensions["E"].width = 4
-    ws3.column_dimensions["F"].width = 12
-    ws3.column_dimensions["G"].width = 14
-    ws3.column_dimensions["H"].width = 12
-    ws3.column_dimensions["I"].width = 12
-    ws3.column_dimensions["J"].width = 12
+    ws3.column_dimensions["A"].width = 14
+    ws3.column_dimensions["B"].width = 16
+    for pi in range(num_projects):
+        ws3.column_dimensions[get_column_letter(col_first_project + pi)].width = 16
+    ws3.column_dimensions[get_column_letter(col_volunteer)].width = 12
+    ws3.column_dimensions[get_column_letter(col_paid)].width = 12
+    ws3.column_dimensions[get_column_letter(col_total)].width = 12
 
     # 保存到 BytesIO
     output = BytesIO()
