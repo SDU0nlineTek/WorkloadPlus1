@@ -481,6 +481,14 @@ async def delete_record(s: UserSession, record_id: UUID):
         raise HTTPException(404, "记录不存在")
     if record.user_id != s.user.id:
         raise HTTPException(403, "无权删除他人记录")
+    deleted_data = {
+        "project_name": record.project.name,
+        "description": record.description,
+        "hours": record.duration_minutes // 60,
+        "minutes": record.duration_minutes % 60,
+        "related_content": record.related_content or "",
+        "dept_id": str(record.dept_id),
+    }
     s.db.delete(record)
     s.db.commit()
-    return {"message": "删除成功"}
+    return {"message": "删除成功", "record": deleted_data}

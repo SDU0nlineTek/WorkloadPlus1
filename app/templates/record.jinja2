@@ -127,15 +127,15 @@
     <div class="lg:col-span-1">
         <div class="bg-white rounded-xl shadow-sm p-6">
             <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-bold text-gray-800">最近记录</h3>
-                <span class="text-sm text-gray-500">
+                <h3 class="text-lg font-bold text-gray-800">最近记录(24h)</h3>
+                <span id="recent-total-hours" class="text-sm text-gray-500" data-total-minutes="{{ recent_hours * 60 + recent_mins }}">
                     共 {{ '%.1f'|format((recent_hours * 60 + recent_mins) / 60) }} 小时
                 </span>
             </div>
 
             <div class="space-y-3" id="recent-records">
                 {% for record in recent_records %}
-                <div class="p-3 bg-gray-50 rounded-lg group relative">
+                <div class="p-3 bg-gray-50 rounded-lg group relative" data-record-id="{{ record.id }}" data-duration-minutes="{{ record.duration_minutes }}">
                     <div class="flex justify-between items-start">
                         <div class="flex-1">
                             <p class="text-sm font-medium text-gray-800">{{ record.project.name }}</p>
@@ -146,13 +146,22 @@
                             {{ '%.1f'|format(record.duration_minutes / 60) }} 小时
                         </span>
                     </div>
-                    <button onclick="deleteRecord('{{ record.id }}')" title="删除记录" aria-label="删除记录"
-                        class="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
-                    </button>
+                    <div class="flex items-center justify-end mt-1.5 gap-2 opacity-0 group-hover:opacity-100 transition">
+                        <button onclick="revokeRecord('{{ record.id }}')" title="撤回并回填表单" aria-label="撤回记录"
+                            class="text-amber-500 hover:text-amber-700">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4"></path>
+                            </svg>
+                        </button>
+                        <button onclick="deleteRecord('{{ record.id }}')" title="删除记录" aria-label="删除记录"
+                            class="text-red-400 hover:text-red-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
                 {% else %}
                 <p class="text-gray-400 text-center py-8">最近24小时内暂无记录</p>
@@ -358,9 +367,29 @@
         }
     }
 
-    // 删除记录
-    async function deleteRecord(id) {
-        if (!confirm('确定要删除这条记录吗？')) return;
+    // 从 DOM 移除记录并更新总时长
+    function removeRecordFromDOM(id) {
+        const recordEl = document.querySelector(`[data-record-id="${id}"]`);
+        if (recordEl) {
+            const minutes = parseInt(recordEl.dataset.durationMinutes || '0');
+            recordEl.remove();
+            const totalEl = document.getElementById('recent-total-hours');
+            if (totalEl) {
+                const current = parseInt(totalEl.dataset.totalMinutes || '0');
+                const updated = Math.max(0, current - minutes);
+                totalEl.dataset.totalMinutes = updated;
+                totalEl.textContent = `共 ${(updated / 60).toFixed(1)} 小时`;
+            }
+        }
+        const container = document.getElementById('recent-records');
+        if (container && !container.querySelector('[data-record-id]')) {
+            container.innerHTML = '<p class="text-gray-400 text-center py-8">最近24小时内暂无记录</p>';
+        }
+    }
+
+    // 撤回记录并回填表单
+    async function revokeRecord(id) {
+        if (!confirm('确定要撤回这条记录吗？内容将回填到表单。')) return;
 
         try {
             const response = await fetch(`/record/${id}`, { method: 'DELETE' });
@@ -368,8 +397,54 @@
                 const data = await response.json();
                 throw new Error(data.detail || '删除失败');
             }
-            showToast('删除成功', 'success');
-            setTimeout(() => location.reload(), 500);
+            const result = await response.json();
+            const record = result.record;
+
+            if (record) {
+                document.getElementById('dept-select').value = record.dept_id;
+
+                const projectSelect = document.getElementById('project-select');
+                const customInput = document.getElementById('project-custom-input');
+                let found = false;
+                for (const option of projectSelect.options) {
+                    if (option.value === record.project_name) {
+                        projectSelect.value = record.project_name;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    ensureNewProjectOption();
+                    projectSelect.value = '__new__';
+                    customInput.value = record.project_name;
+                }
+                toggleCustomProjectInput();
+
+                document.querySelector('textarea[name="description"]').value = record.description;
+                document.querySelector('input[name="hours"]').value = record.hours;
+                document.querySelector('input[name="minutes"]').value = record.minutes;
+                document.querySelector('input[name="related_content"]').value = record.related_content;
+            }
+
+            removeRecordFromDOM(id);
+            showToast('已回填到表单', 'success');
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    }
+
+    // 删除记录（不回填）
+    async function deleteRecord(id) {
+        if (!confirm('确定要永久删除这条记录吗？')) return;
+
+        try {
+            const response = await fetch(`/record/${id}`, { method: 'DELETE' });
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.detail || '删除失败');
+            }
+            removeRecordFromDOM(id);
+            showToast('已删除', 'success');
         } catch (e) {
             showToast(e.message, 'error');
         }
